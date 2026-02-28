@@ -367,59 +367,122 @@ show_banner() {
 }
 
 # --- Version & Update ---
+
+# Detect install method: "brew" or "git"
+is_brew_install() {
+  [[ "$SCRIPT_DIR" == */Cellar/* || "$SCRIPT_DIR" == */homebrew/* ]] && return 0
+  # Not a git repo = likely brew
+  [[ ! -d "$SCRIPT_DIR/.git" ]] && return 0
+  return 1
+}
+
 get_version() {
-  local tag commit
-  tag=$(git -C "$SCRIPT_DIR" describe --tags --abbrev=0 2>/dev/null)
-  commit=$(git -C "$SCRIPT_DIR" rev-parse --short HEAD 2>/dev/null || echo "dev")
-  if [[ -n "$tag" ]]; then
-    echo "$tag-$commit"
+  if is_brew_install; then
+    # Brew install — use version constant
+    echo "$RUNVO_VERSION"
   else
-    echo "$RUNVO_VERSION-$commit"
+    # Git install — tag + commit hash
+    local tag commit
+    tag=$(git -C "$SCRIPT_DIR" describe --tags --abbrev=0 2>/dev/null)
+    commit=$(git -C "$SCRIPT_DIR" rev-parse --short HEAD 2>/dev/null || echo "dev")
+    if [[ -n "$tag" ]]; then
+      echo "$tag-$commit"
+    else
+      echo "$RUNVO_VERSION-$commit"
+    fi
   fi
 }
 
 check_update() {
   echo -e "  ${C_DIM}Checking for updates...${C_RESET}"
-  git -C "$SCRIPT_DIR" fetch origin master --quiet 2>/dev/null
-  local behind
-  behind=$(git -C "$SCRIPT_DIR" rev-list --count HEAD..origin/master 2>/dev/null || echo "0")
-  if [[ "$behind" -gt 0 ]]; then
-    echo -e "  ${C_YELLOW}⬆ Update available${C_RESET} ${C_DIM}($behind commit(s) behind)${C_RESET}"
-    return 0
+  if is_brew_install; then
+    # Brew install — check via brew outdated
+    brew update --quiet 2>/dev/null
+    if brew outdated --quiet 2>/dev/null | grep -q "^runvo$"; then
+      local latest
+      latest=$(brew info runvo 2>/dev/null | head -1 | awk '{print $3}')
+      echo -e "  ${C_YELLOW}⬆ Update available${C_RESET} ${C_DIM}($RUNVO_VERSION → ${latest:-newer})${C_RESET}"
+      return 0
+    else
+      echo -e "  ${C_GREEN}✓ Up to date${C_RESET} ${C_DIM}($(get_version))${C_RESET}"
+      return 1
+    fi
   else
-    echo -e "  ${C_GREEN}✓ Up to date${C_RESET} ${C_DIM}($(get_version))${C_RESET}"
-    return 1
+    # Git install — check via git
+    git -C "$SCRIPT_DIR" fetch origin master --quiet 2>/dev/null
+    local behind
+    behind=$(git -C "$SCRIPT_DIR" rev-list --count HEAD..origin/master 2>/dev/null || echo "0")
+    if [[ "$behind" -gt 0 ]]; then
+      echo -e "  ${C_YELLOW}⬆ Update available${C_RESET} ${C_DIM}($behind commit(s) behind)${C_RESET}"
+      return 0
+    else
+      echo -e "  ${C_GREEN}✓ Up to date${C_RESET} ${C_DIM}($(get_version))${C_RESET}"
+      return 1
+    fi
   fi
 }
 
 do_update() {
   echo -e "  ${C_DIM}Updating...${C_RESET}"
-  local old_head
-  old_head=$(git -C "$SCRIPT_DIR" rev-parse HEAD 2>/dev/null)
-  if git -C "$SCRIPT_DIR" pull --ff-only origin master --quiet 2>/dev/null; then
-    echo -e "  ${C_GREEN}✓ Updated to $(get_version)${C_RESET}"
-    echo ""
-    echo -e "  ${C_WHITE}What's new:${C_RESET}"
-    git -C "$SCRIPT_DIR" log --format="  ${C_CYAN}•${C_RESET} %s" "$old_head..HEAD" 2>/dev/null
-    echo ""
-    return 0
+  if is_brew_install; then
+    # Brew install — upgrade via brew
+    if brew upgrade runvo 2>/dev/null; then
+      echo -e "  ${C_GREEN}✓ Updated to $(get_version)${C_RESET}"
+      return 0
+    else
+      echo -e "  ${C_RED}✗ Update failed${C_RESET}"
+      echo -e "  ${C_DIM}Try: brew update && brew upgrade runvo${C_RESET}"
+      return 1
+    fi
   else
-    echo -e "  ${C_RED}✗ Update failed (local changes?)${C_RESET}"
-    echo -e "  ${C_DIM}Try: cd \"$SCRIPT_DIR\" && git pull${C_RESET}"
-    return 1
+    # Git install — pull latest
+    local old_head
+    old_head=$(git -C "$SCRIPT_DIR" rev-parse HEAD 2>/dev/null)
+    if git -C "$SCRIPT_DIR" pull --ff-only origin master --quiet 2>/dev/null; then
+      echo -e "  ${C_GREEN}✓ Updated to $(get_version)${C_RESET}"
+      echo ""
+      echo -e "  ${C_WHITE}What's new:${C_RESET}"
+      git -C "$SCRIPT_DIR" log --format="  ${C_CYAN}•${C_RESET} %s" "$old_head..HEAD" 2>/dev/null
+      echo ""
+      return 0
+    else
+      echo -e "  ${C_RED}✗ Update failed (local changes?)${C_RESET}"
+      echo -e "  ${C_DIM}Try: cd \"$SCRIPT_DIR\" && git pull${C_RESET}"
+      return 1
+    fi
   fi
 }
 
 check_update_silent() {
-  local behind
-  behind=$(git -C "$SCRIPT_DIR" rev-list --count HEAD..origin/master 2>/dev/null || echo "0")
-  if [[ "$behind" -gt 0 ]]; then
-    echo -e "${C_YELLOW}    ⬆ Update available ($behind new)${C_RESET}"
-    if confirm_action "Update now?"; then
-      do_update && exec bash "${BASH_SOURCE[0]}" "$@"
+  if is_brew_install; then
+    # Brew install — lightweight GitHub API check (background result from last run)
+    local cache_file="$RUNVO_DIR/.latest_version"
+    if [[ -f "$cache_file" ]]; then
+      local latest
+      latest=$(cat "$cache_file" 2>/dev/null)
+      if [[ -n "$latest" && "$latest" != "$RUNVO_VERSION" ]]; then
+        echo -e "${C_YELLOW}    ⬆ Update available ($RUNVO_VERSION → $latest)${C_RESET}"
+        if confirm_action "Update now?"; then
+          do_update && exec bash "${BASH_SOURCE[0]}" "$@"
+        fi
+      fi
     fi
+    # Background fetch latest version for next run
+    (curl -sfL "https://api.github.com/repos/runvo/runvo/releases/latest" 2>/dev/null \
+      | grep -o '"tag_name":[^,]*' | head -1 | cut -d'"' -f4 | sed 's/^v//' \
+      > "$cache_file" 2>/dev/null) &
+  else
+    # Git install — check via last fetch
+    local behind
+    behind=$(git -C "$SCRIPT_DIR" rev-list --count HEAD..origin/master 2>/dev/null || echo "0")
+    if [[ "$behind" -gt 0 ]]; then
+      echo -e "${C_YELLOW}    ⬆ Update available ($behind new)${C_RESET}"
+      if confirm_action "Update now?"; then
+        do_update && exec bash "${BASH_SOURCE[0]}" "$@"
+      fi
+    fi
+    git -C "$SCRIPT_DIR" fetch origin master --quiet 2>/dev/null &
   fi
-  git -C "$SCRIPT_DIR" fetch origin master --quiet 2>/dev/null &
 }
 
 # --- Setup Wizard ---
@@ -952,7 +1015,9 @@ if [[ $# -ge 1 ]]; then
       exit 0
       ;;
     version|--version|-v)
-      echo -e "  ${C_WHITE}runvo${C_RESET} $(get_version)"
+      local install_type="git"
+      is_brew_install && install_type="brew"
+      echo -e "  ${C_WHITE}runvo${C_RESET} $(get_version) ${C_DIM}($install_type)${C_RESET}"
       echo -e "  ${C_DIM}Agent: $RUNVO_AGENT${C_RESET}"
       exit 0
       ;;

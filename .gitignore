@@ -6,9 +6,13 @@ config
 prompts/custom/*
 !prompts/custom/.gitkeep
 
-# Logs
+# Logs & cache
 history.log
 *.log
+.latest_version
+
+# Internal plans/reports
+plans/
 
 # OS
 .DS_Store
