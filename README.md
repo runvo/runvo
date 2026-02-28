@@ -2,61 +2,50 @@
 
 Mobile command center for AI coding agents. Run Claude Code, Aider, or any AI CLI from your phone via SSH.
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/runvo/runvo/master/install.sh | bash
-```
-
-## Features
-
-- **One command** to run AI agents on any project
-- **tmux sessions** — persistent, resumable from any device
-- **Agent-agnostic** — Claude Code, Aider, or any CLI agent
-- **Preset prompts** — review, test, fix-lint, status (+ custom)
-- **gum TUI** — beautiful menus with plain-text fallback
-- **Auto-update** — stay current with `runvo update`
-- **Phone-friendly** — designed for Termius + Tailscale SSH
-
 ## Install
 
 ```bash
+# Homebrew (recommended)
+brew tap runvo/runvo
+brew install runvo
+
+# Or one-liner
 curl -fsSL https://raw.githubusercontent.com/runvo/runvo/master/install.sh | bash
 ```
 
-Requires: `git`, `tmux`, and an AI CLI (`claude` or `aider`). The installer handles `tmux` and optional `gum` via Homebrew.
+Requires: `git`, `tmux`, and an AI CLI (`claude` or `aider`).
 
 ## Quick Start
 
 ```bash
-# 1. Install
-curl -fsSL https://raw.githubusercontent.com/runvo/runvo/master/install.sh | bash
+# 1. Install (see above)
 
-# 2. Add a project (or use the setup wizard)
+# 2. Add a project
 runvo add my-app ~/Projects/my-app "My App"
 
-# 3. Run
-runvo              # Interactive menu
-runvo 1            # Open project #1 in tmux
-runvo 1 1          # Run preset action #1 on project #1
+# 3. Run — pick project, start chatting
+runvo
 ```
+
+That's it. Type a number, press Enter, chat with your AI agent.
 
 ## Usage
 
 ```bash
-# Interactive
-runvo                       # Full menu with gum (or plain fallback)
+# Interactive — pick project → chat
+runvo                       # Show projects, type number → chat
+runvo <n>                   # Open project #n directly
 
-# Quick commands
-runvo <n>                   # Open project #n (tmux interactive)
+# One-shot commands
 runvo <n> <a>               # Run preset action #a on project #n
 runvo <n> c "fix the bug"   # Custom prompt on project #n
-runvo <n> i                 # Interactive tmux session
 
 # Project management
-runvo setup                 # First-run wizard
 runvo add [name path desc]  # Add project (interactive or one-liner)
 runvo remove <name>         # Remove project
 runvo list                  # List projects
 runvo config                # Edit projects.conf in $EDITOR
+runvo setup                 # Setup wizard
 
 # Prompt management
 runvo prompts               # List all prompts (shipped + custom)
@@ -68,17 +57,15 @@ runvo prompt rm <name>      # Delete custom prompt
 runvo sessions              # Active tmux sessions
 runvo history               # Recent run history
 runvo update                # Check & install updates
-runvo version               # Show version info
+runvo version               # Show version
 runvo help                  # Full help
 ```
 
-## Remote Access (Phone)
+## Phone Setup (one-time)
 
-Three steps to run AI agents from your iPhone:
-
-1. **Mac** — Enable Remote Login: `System Settings → General → Sharing → Remote Login`
-2. **Tailscale** — Install on Mac + iPhone, login same account. Note `100.x.x.x` IP.
-3. **Termius** — Add SSH host with Tailscale IP. Connect and run `runvo`.
+1. **Mac** — `System Settings → General → Sharing → Remote Login` ON
+2. **Tailscale** — Install on Mac + iPhone, login same account
+3. **Termius** (iPhone) — Add SSH host with Tailscale IP (`tailscale ip -4`). Connect → `runvo`
 
 No static IP, no port forwarding. Tailscale handles everything.
 
@@ -96,33 +83,28 @@ Manage with `runvo add`, `runvo remove`, or `runvo config`.
 
 ### Prompts
 
-**Shipped** prompts live in the repo `prompts/` dir: `review`, `fix-lint`, `test`, `status`.
+**Shipped**: `review`, `fix-lint`, `test`, `status` (in repo `prompts/` dir).
 
-**Custom** prompts go in `~/.runvo/prompts/custom/` (git-ignored). Create with `runvo prompt add <name>`. Custom prompts with the same name override shipped ones.
+**Custom**: `~/.runvo/prompts/custom/` (git-ignored). Create with `runvo prompt add <name>`. Same-name custom prompts override shipped.
 
-### Agent Config (`~/.runvo/config`)
+### Agent (`~/.runvo/config`)
 
 ```
 RUNVO_AGENT=claude
 RUNVO_AGENT_PROMPT_FLAG=-p
 ```
 
-Auto-detected on first run. Supports `claude` (`-p` flag) and `aider` (`--message` flag). Any CLI agent works if you set the correct prompt flag.
+Auto-detected on first run. Built-in support for `claude` (`-p`) and `aider` (`--message`). Any CLI agent works — just set the flag.
 
 ## Requirements
 
 - **tmux** — session persistence
-- **AI CLI** — Claude Code, Aider, or any CLI-based agent
-- **gum** — optional, for prettier menus (auto-fallback to plain text)
+- **AI CLI** — Claude Code, Aider, or any CLI agent
 - **Tailscale** + **Termius** — for phone access (optional)
 
 ## Contributing
 
-1. Fork the repo
-2. Create a branch (`git checkout -b feature/my-feature`)
-3. Commit changes (`git commit -m "Add my feature"`)
-4. Push (`git push origin feature/my-feature`)
-5. Open a PR
+1. Fork → branch → commit → push → PR
 
 ## License
 
