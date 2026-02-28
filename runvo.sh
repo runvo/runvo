@@ -267,10 +267,37 @@ run_agent_interactive() {
   fi
 
   if tmux has-session -t "$session_name" 2>/dev/null; then
-    echo -e "  ${C_YELLOW}Session '$session_name' exists. Attaching...${C_RESET}"
-    tmux attach-session -t "$session_name"
+    # Session exists — ask: attach or new
+    echo ""
+    echo -e "  ${C_PINK}▸ $project_name${C_RESET} ${C_DIM}— session running${C_RESET}"
+    echo ""
+    echo -e "  ${C_WHITE} 1${C_RESET}  ${C_GREEN}Continue session${C_RESET} ${C_DIM}(attach)${C_RESET}"
+    echo -e "  ${C_WHITE} 2${C_RESET}  ${C_CYAN}New chat${C_RESET} ${C_DIM}(kill old + start fresh)${C_RESET}"
+    echo -e "  ${C_WHITE} 3${C_RESET}  ${C_CYAN}Resume last chat${C_RESET} ${C_DIM}(claude --continue)${C_RESET}"
+    echo ""
+    local choice
+    read -rp "  # " choice
+    case "$choice" in
+      1|"")
+        tmux attach-session -t "$session_name"
+        ;;
+      2)
+        tmux kill-session -t "$session_name" 2>/dev/null
+        tmux new-session -d -s "$session_name" -c "$project_path"
+        tmux send-keys -t "$session_name" "$RUNVO_AGENT" Enter
+        tmux attach-session -t "$session_name"
+        ;;
+      3)
+        tmux kill-session -t "$session_name" 2>/dev/null
+        tmux new-session -d -s "$session_name" -c "$project_path"
+        tmux send-keys -t "$session_name" "$RUNVO_AGENT --continue" Enter
+        tmux attach-session -t "$session_name"
+        ;;
+      *)
+        return
+        ;;
+    esac
   else
-    echo -e "  ${C_GREEN}Creating session '$session_name'...${C_RESET}"
     tmux new-session -d -s "$session_name" -c "$project_path"
     tmux send-keys -t "$session_name" "$RUNVO_AGENT" Enter
     tmux attach-session -t "$session_name"
@@ -307,8 +334,15 @@ display_projects() {
   fi
   for i in "${!PROJECT_NAMES[@]}"; do
     local num=$((i + 1))
-    printf "  ${C_WHITE}%2d${C_RESET}  ${C_CYAN}%-20s${C_RESET} ${C_DIM}%s${C_RESET}\n" \
-      "$num" "${PROJECT_NAMES[$i]}" "${PROJECT_DESCS[$i]}"
+    local name="${PROJECT_NAMES[$i]}"
+    local desc="${PROJECT_DESCS[$i]}"
+    local status=""
+    # Show indicator if tmux session is running
+    if tmux has-session -t "runvo-${name}" 2>/dev/null; then
+      status="${C_GREEN}●${C_RESET} "
+    fi
+    printf "  ${C_WHITE}%2d${C_RESET}  ${status}${C_CYAN}%-20s${C_RESET} ${C_DIM}%s${C_RESET}\n" \
+      "$num" "$name" "$desc"
   done
 }
 
