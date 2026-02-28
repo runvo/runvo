@@ -2,6 +2,8 @@
 
 Mobile command center for AI coding agents. Run Claude Code, Aider, or any AI CLI from your phone via SSH.
 
+[![Guide](https://img.shields.io/badge/Setup_Guide-runvo.github.io-f2a8c2?style=flat-square)](https://runvo.github.io) [![GitHub](https://img.shields.io/github/stars/runvo/runvo?style=flat-square&label=GitHub)](https://github.com/runvo/runvo) [![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
+
 ## Install
 
 ```bash
