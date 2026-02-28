@@ -59,6 +59,7 @@ runvo prompt rm <name>      # Delete custom prompt
 runvo sessions              # Active tmux sessions
 runvo history               # Recent run history
 runvo update                # Check & install updates
+runvo ssh-auto              # Toggle SSH auto-launch
 runvo version               # Show version
 runvo help                  # Full help
 ```
