@@ -1,0 +1,14 @@
+# User config (not shipped)
+projects.conf
+config
+
+# User custom prompts
+prompts/custom/*
+!prompts/custom/.gitkeep
+
+# Logs
+history.log
+*.log
+
+# OS
+.DS_Store

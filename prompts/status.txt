@@ -1,0 +1,1 @@
+Show git status, recent commits, and any uncommitted changes in this project. Summarize the current state.

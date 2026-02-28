@@ -1,0 +1,1 @@
+Fix all lint and type errors in this project. Run the linter, fix issues, and confirm everything passes.
