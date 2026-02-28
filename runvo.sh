@@ -661,6 +661,12 @@ main_menu() {
   display_projects
   echo ""
   echo -e "  ${C_WHITE} +${C_RESET}  ${C_DIM}Add project${C_RESET}"
+  # Show ssh-auto status
+  local auto_status="${C_DIM}○ off${C_RESET}"
+  local rc_file="$HOME/.zshrc"
+  [[ "$SHELL" == *bash ]] && rc_file="$HOME/.bashrc"
+  grep -qF "$AUTOSTART_MARKER_START" "$rc_file" 2>/dev/null && auto_status="${C_GREEN}● on${C_RESET}"
+  echo -e "  ${C_WHITE} s${C_RESET}  ${C_DIM}SSH auto-launch${C_RESET} ${auto_status}"
   echo ""
 
   local proj_choice
@@ -671,6 +677,12 @@ main_menu() {
   # Add project shortcut
   if [[ "$proj_choice" == "+" ]]; then
     cmd_add_project
+    return
+  fi
+
+  # SSH auto-launch toggle
+  if [[ "$proj_choice" == "s" || "$proj_choice" == "S" ]]; then
+    cmd_ssh_auto
     return
   fi
 
