@@ -803,6 +803,7 @@ show_help() {
   echo -e "  ${C_CYAN}runvo prompt rm${C_RESET} ${C_WHITE}<name>${C_RESET}      Remove custom prompt"
   echo -e "  ${C_CYAN}runvo sessions${C_RESET}              Active tmux sessions"
   echo -e "  ${C_CYAN}runvo history${C_RESET}               Recent history"
+  echo -e "  ${C_CYAN}runvo ssh-auto${C_RESET}              Auto-launch on SSH login"
   echo -e "  ${C_CYAN}runvo update${C_RESET}                Check & install updates"
   echo -e "  ${C_CYAN}runvo version${C_RESET}               Show version"
   echo ""
@@ -816,6 +817,59 @@ show_help() {
     ((idx++))
   done
   echo ""
+}
+
+# --- SSH Auto-launch ---
+AUTOSTART_MARKER_START="# >>> runvo-ssh-auto >>>"
+AUTOSTART_MARKER_END="# <<< runvo-ssh-auto <<<"
+AUTOSTART_BLOCK='# >>> runvo-ssh-auto >>>
+# Auto-launch runvo on SSH login
+if [[ -n "$SSH_CONNECTION" ]] && command -v runvo &>/dev/null; then
+    runvo
+fi
+# <<< runvo-ssh-auto <<<'
+
+cmd_ssh_auto() {
+  # Detect shell rc file
+  local rc_file
+  if [[ -n "$ZSH_VERSION" ]] || [[ "$SHELL" == *zsh ]]; then
+    rc_file="$HOME/.zshrc"
+  else
+    rc_file="$HOME/.bashrc"
+  fi
+
+  # Check current state
+  if grep -qF "$AUTOSTART_MARKER_START" "$rc_file" 2>/dev/null; then
+    echo -e "  ${C_GREEN}● SSH auto-launch is ON${C_RESET}"
+    echo ""
+    echo -e "  ${C_WHITE} 1${C_RESET}  ${C_RED}Turn OFF${C_RESET}"
+    echo -e "  ${C_WHITE} 2${C_RESET}  ${C_DIM}Keep ON${C_RESET}"
+    echo ""
+    local choice
+    read -rp "  # " choice
+    if [[ "$choice" == "1" ]]; then
+      # Remove the block
+      sed -i.bak "/$AUTOSTART_MARKER_START/,/$AUTOSTART_MARKER_END/d" "$rc_file"
+      rm -f "$rc_file.bak"
+      echo -e "  ${C_GREEN}✓ Disabled. Restart shell to apply.${C_RESET}"
+    fi
+  else
+    echo -e "  ${C_DIM}○ SSH auto-launch is OFF${C_RESET}"
+    echo ""
+    echo -e "  ${C_DIM}When enabled, runvo starts automatically when you SSH in${C_RESET}"
+    echo -e "  ${C_DIM}(e.g. from Termius on iPhone). Only triggers on SSH, not local terminal.${C_RESET}"
+    echo ""
+    echo -e "  ${C_WHITE} 1${C_RESET}  ${C_GREEN}Turn ON${C_RESET}"
+    echo -e "  ${C_WHITE} 2${C_RESET}  ${C_DIM}Cancel${C_RESET}"
+    echo ""
+    local choice
+    read -rp "  # " choice
+    if [[ "$choice" == "1" ]]; then
+      echo "" >> "$rc_file"
+      echo "$AUTOSTART_BLOCK" >> "$rc_file"
+      echo -e "  ${C_GREEN}✓ Enabled! Next SSH login will auto-launch runvo.${C_RESET}"
+    fi
+  fi
 }
 
 # ===== MAIN =====
@@ -871,6 +925,10 @@ if [[ $# -ge 1 ]]; then
       ;;
     sessions)
       show_sessions
+      exit 0
+      ;;
+    ssh-auto)
+      cmd_ssh_auto
       exit 0
       ;;
     history)
