@@ -115,6 +115,10 @@ Auto-detected on first run. Built-in support for `claude` (`-p`) and `aider` (`-
 
 1. Fork → branch → commit → push → PR
 
+## Author
+
+**Tran Thai Hoang** — [admi@tranthaihoang.com](mailto:admi@tranthaihoang.com)
+
 ## License
 
 [AGPL-3.0](LICENSE)

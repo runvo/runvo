@@ -2,6 +2,7 @@
 
 # runvo — Mobile command center for AI coding agents
 # Run AI coding CLIs (Claude Code, Aider, etc.) from your phone via SSH
+# Copyright (c) 2025 Tran Thai Hoang <admi@tranthaihoang.com>
 # https://github.com/runvo/runvo
 
 RUNVO_VERSION="1.0.1"
