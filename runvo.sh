@@ -384,11 +384,21 @@ display_actions() {
 
 # --- Banner ---
 show_banner() {
-  local ver
+  local ver bw=40
   ver=$(get_version)
+
+  # Dynamic padding for version-dependent line
+  local dc=$((bw - 14 - ${#ver}))
+  local dashes_top=$(printf '%*s' "$dc" '' | tr ' ' '─')
+  local dashes_btm=$(printf '%*s' "$((bw - 26))" '' | tr ' ' '─')
+  local sp2=$(printf '%*s' "$((bw - 37))" '')
+  local sp3=$(printf '%*s' "$((bw - 20))" '')
+
   echo ""
-  printf "    ${C_PINK}▸ RUNVO${C_RESET}%*s${C_DIM}%s${C_RESET}\n" $((33 - ${#ver})) "" "v$ver"
-  echo -e "    ${C_DIM}────────────────────────────────────────${C_RESET}"
+  echo -e "    ${C_DIM}╭─── ${C_PINK}runvo${C_DIM} ${dashes_top} ${C_RESET}v${ver}${C_DIM} ─╮${C_RESET}"
+  echo -e "    ${C_DIM}│${C_RESET}  Mobile command center for AI agents${sp2}${C_DIM}│${C_RESET}"
+  echo -e "    ${C_DIM}│${C_RESET}  ${C_ROSE}by Tran Thai Hoang${C_RESET}${sp3}${C_DIM}│${C_RESET}"
+  echo -e "    ${C_DIM}╰── github.com/runvo/runvo ${dashes_btm}╯${C_RESET}"
 }
 
 # --- Version & Update ---
