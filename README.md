@@ -79,11 +79,29 @@ runvo version               # Show version
 runvo help                  # Full help
 ```
 
+## Server Setup
+
+runvo runs on **macOS**, **Linux**, or **Windows (WSL)**.
+
+```bash
+# macOS
+brew tap runvo/runvo && brew install runvo
+
+# Linux / WSL
+sudo apt install -y tmux git
+curl -fsSL https://raw.githubusercontent.com/runvo/runvo/master/install.sh | bash
+```
+
 ## Phone Setup (one-time)
 
-1. **Mac** — `System Settings → General → Sharing → Remote Login` ON
-2. **Tailscale** — Install on Mac + iPhone, login same account
-3. **Termius** (iPhone) — Add SSH host with Tailscale IP (`tailscale ip -4`). Connect → `runvo`
+Works with **iPhone** and **Android**.
+
+1. **Computer** — Enable SSH + install [Tailscale](https://tailscale.com/download)
+   - macOS: `System Settings → General → Sharing → Remote Login` ON
+   - Linux: `sudo apt install openssh-server`
+   - Windows WSL: `sudo apt install openssh-server` (use port 2222)
+2. **Phone** — Install [Tailscale](https://tailscale.com/download) ([iOS](https://apps.apple.com/app/tailscale/id1470499037) / [Android](https://play.google.com/store/apps/details?id=com.tailscale.ipn)) — login same account
+3. **Phone** — Install [Termius](https://termius.com) ([iOS](https://apps.apple.com/app/termius-terminal-ssh-client/id549039908) / [Android](https://play.google.com/store/apps/details?id=com.server.auditor.ssh.client)) — add SSH host with Tailscale IP (`tailscale ip -4`)
 
 No static IP, no port forwarding. Tailscale handles everything.
 
@@ -117,9 +135,9 @@ Auto-detected on first run. Built-in support for `claude` (`-p`) and `aider` (`-
 
 ## Requirements
 
-- **tmux** — session persistence
+- **tmux** — session persistence (macOS, Linux, WSL)
 - **AI CLI** — Claude Code, Aider, or any CLI agent
-- **Tailscale** + **Termius** — for phone access (optional)
+- **Tailscale** + **Termius** — for phone access (optional, iOS & Android)
 
 ## Contributing
 
