@@ -108,6 +108,13 @@ input_text() {
   fi
 }
 
+# --- UI helpers ---
+print_sep() { echo -e "    ${C_DIM}────────────────────────────────────────${C_RESET}"; }
+print_header() { echo ""; echo -e "    ${C_ROSE}$1${C_RESET}"; print_sep; echo ""; }
+validate_prompt_name() {
+  [[ "$1" == */* || "$1" == *..* ]] && { echo -e "  ${C_RED}Invalid name.${C_RESET}"; return 1; }
+}
+
 # --- Agent detection ---
 detect_agent() {
   if command -v claude &>/dev/null; then
@@ -122,13 +129,16 @@ detect_agent() {
   fi
 }
 
-get_agent_flag() {
-  case "$RUNVO_AGENT" in
+# Resolve prompt flag for any agent name
+agent_flag_for() {
+  case "$1" in
     claude) echo "-p" ;;
     aider)  echo "--message" ;;
     *)      echo "$RUNVO_AGENT_PROMPT_FLAG" ;;
   esac
 }
+
+get_agent_flag() { agent_flag_for "$RUNVO_AGENT"; }
 
 # --- Check dependencies ---
 check_deps() {
@@ -181,15 +191,7 @@ get_project_agent() {
   [[ -n "$agent" ]] && echo "$agent" || echo "$RUNVO_AGENT"
 }
 
-get_project_agent_flag() {
-  local agent
-  agent=$(get_project_agent "$1")
-  case "$agent" in
-    claude) echo "-p" ;;
-    aider)  echo "--message" ;;
-    *)      echo "$RUNVO_AGENT_PROMPT_FLAG" ;;
-  esac
-}
+get_project_agent_flag() { agent_flag_for "$(get_project_agent "$1")"; }
 
 # --- Load prompts (shipped + user custom; user overrides shipped by name) ---
 load_prompts() {
@@ -222,9 +224,7 @@ load_prompts() {
 log_history() {
   local project=$1 action=$2 status=$3
   echo "$(date '+%Y-%m-%d %H:%M:%S')|$project|$action|$status" >> "$LOG_FILE"
-  if [[ -f "$LOG_FILE" ]]; then
-    tail -n $LOG_MAX "$LOG_FILE" > "$LOG_FILE.tmp" && mv "$LOG_FILE.tmp" "$LOG_FILE"
-  fi
+  tail -n $LOG_MAX "$LOG_FILE" > "$LOG_FILE.tmp" && mv "$LOG_FILE.tmp" "$LOG_FILE"
 }
 
 show_history() {
@@ -232,10 +232,7 @@ show_history() {
     echo -e "  ${C_DIM}No history yet.${C_RESET}"
     return
   fi
-  echo ""
-  echo -e "    ${C_ROSE}HISTORY${C_RESET}"
-  echo -e "    ${C_DIM}────────────────────────────────────────${C_RESET}"
-  echo ""
+  print_header "HISTORY"
   tac "$LOG_FILE" | head -20 | while IFS='|' read -r ts project action status; do
     local short_ts="${ts##* }"  # HH:MM:SS
     short_ts="${short_ts%:*}"    # HH:MM
@@ -271,9 +268,7 @@ run_agent_prompt() {
     flag=$(get_agent_flag)
   fi
 
-  echo ""
-  echo -e "    ${C_ROSE}RUN${C_RESET}"
-  echo -e "    ${C_DIM}────────────────────────────────────────${C_RESET}"
+  print_header "RUN"
   printf "    ${C_DIM}Project${C_RESET}  ${C_WHITE}%s${C_RESET}\n" "$project_name"
   printf "    ${C_DIM}Action${C_RESET}   ${C_CYAN}%s${C_RESET}\n" "$action_name"
   printf "    ${C_DIM}Agent${C_RESET}    ${C_DIM}%s${C_RESET}\n" "$agent"
@@ -284,7 +279,7 @@ run_agent_prompt() {
   local exit_code=$?
 
   echo ""
-  echo -e "  ${C_DIM}────────────────────────────────────────────${C_RESET}"
+  print_sep
   if [[ $exit_code -eq 0 ]]; then
     echo -e "  ${C_GREEN}✓ Done${C_RESET}"
     log_history "$project_name" "$action_name" "ok"
@@ -310,10 +305,7 @@ run_agent_interactive() {
 
   if tmux has-session -t "$session_name" 2>/dev/null; then
     # Session exists — ask: attach or new
-    echo ""
-    echo -e "    ${C_ROSE}SESSION: $project_name${C_RESET}"
-    echo -e "    ${C_DIM}────────────────────────────────────────${C_RESET}"
-    echo ""
+    print_header "SESSION: $project_name"
     echo -e "   ${C_WHITE}1${C_RESET}  Continue session"
     echo -e "   ${C_WHITE}2${C_RESET}  New chat"
     echo -e "   ${C_WHITE}3${C_RESET}  Resume last chat"
@@ -351,10 +343,7 @@ run_agent_interactive() {
 
 # --- List active tmux sessions ---
 show_sessions() {
-  echo ""
-  echo -e "    ${C_ROSE}SESSIONS${C_RESET}"
-  echo -e "    ${C_DIM}────────────────────────────────────────${C_RESET}"
-  echo ""
+  print_header "SESSIONS"
   local sessions
   sessions=$(tmux list-sessions 2>/dev/null | grep "^runvo-")
   if [[ -z "$sessions" ]]; then
@@ -402,7 +391,7 @@ display_projects() {
 # --- Display actions menu ---
 display_actions() {
   echo -e "    ${C_ROSE}ACTIONS${C_RESET}"
-  echo -e "    ${C_DIM}────────────────────────────────────────${C_RESET}"
+  print_sep
   echo ""
   local idx=1
   for name in "${PROMPT_NAMES[@]}"; do
@@ -567,7 +556,7 @@ CONF
 run_setup_wizard() {
   echo ""
   echo -e "${C_PINK}    ▸ RUNVO SETUP${C_RESET}"
-  echo -e "${C_DIM}    ────────────────────────────────────────${C_RESET}"
+  print_sep
   echo ""
 
   ensure_projects_header
@@ -634,7 +623,7 @@ cmd_add_project() {
     local name="$1" path="$2" desc="${3:-}"
     path="${path/#\~/$HOME}"
 
-    if grep -qF "$name |" "$PROJECTS_FILE" 2>/dev/null; then
+    if grep -qE "^[[:space:]]*${name}[[:space:]]*\|" "$PROJECTS_FILE" 2>/dev/null; then
       echo -e "  ${C_RED}Project '$name' already exists.${C_RESET}"
       return 1
     fi
@@ -663,7 +652,7 @@ cmd_add_project() {
     read -rp "  Name [$default_name]: " name
     [[ -z "$name" ]] && name="$default_name"
 
-    if grep -qF "$name |" "$PROJECTS_FILE" 2>/dev/null; then
+    if grep -qE "^[[:space:]]*${name}[[:space:]]*\|" "$PROJECTS_FILE" 2>/dev/null; then
       echo -e "  ${C_RED}Project '$name' already exists.${C_RESET}"
       return 1
     fi
@@ -692,7 +681,7 @@ cmd_new_project() {
   fi
 
   # Check not already registered
-  if grep -qF "$name |" "$PROJECTS_FILE" 2>/dev/null; then
+  if grep -qE "^[[:space:]]*${name}[[:space:]]*\|" "$PROJECTS_FILE" 2>/dev/null; then
     echo -e "  ${C_RED}Project '$name' already registered.${C_RESET}"
     return 1
   fi
@@ -742,14 +731,14 @@ cmd_remove_project() {
     return 1
   fi
 
-  if ! grep -qF "$name |" "$PROJECTS_FILE" 2>/dev/null; then
+  if ! grep -qE "^[[:space:]]*${name}[[:space:]]*\|" "$PROJECTS_FILE" 2>/dev/null; then
     echo -e "  ${C_RED}Project '$name' not found.${C_RESET}"
     return 1
   fi
 
   if confirm_action "Remove project '$name'?"; then
     local line_num
-    line_num=$(grep -nF "$name |" "$PROJECTS_FILE" | head -1 | cut -d: -f1)
+    line_num=$(grep -nE "^[[:space:]]*${name}[[:space:]]*\|" "$PROJECTS_FILE" | head -1 | cut -d: -f1)
     if [[ -n "$line_num" ]]; then
       sed -i.bak "${line_num}d" "$PROJECTS_FILE"
       rm -f "$PROJECTS_FILE.bak"
@@ -760,10 +749,7 @@ cmd_remove_project() {
 
 # --- Prompt Management ---
 cmd_list_prompts() {
-  echo ""
-  echo -e "    ${C_ROSE}PROMPTS${C_RESET}"
-  echo -e "    ${C_DIM}────────────────────────────────────────${C_RESET}"
-  echo ""
+  print_header "PROMPTS"
   echo -e "    ${C_WHITE}Shipped${C_RESET}"
   for f in "$PROMPTS_DIR_SHIPPED"/*.txt; do
     [[ -f "$f" ]] || continue
@@ -787,7 +773,7 @@ cmd_add_prompt() {
     name=$(input_text "Prompt name" "my-prompt")
     [[ -z "$name" ]] && return
   fi
-  [[ "$name" == */* || "$name" == *..* ]] && { echo -e "  ${C_RED}Invalid name.${C_RESET}"; return 1; }
+  validate_prompt_name "$name" || return 1
 
   local file="$PROMPTS_DIR_USER/$name.txt"
   if [[ -f "$file" ]]; then
@@ -814,7 +800,7 @@ cmd_edit_prompt() {
     echo -e "  ${C_RED}Usage: runvo prompt edit <name>${C_RESET}"
     return 1
   fi
-  [[ "$name" == */* || "$name" == *..* ]] && { echo -e "  ${C_RED}Invalid name.${C_RESET}"; return 1; }
+  validate_prompt_name "$name" || return 1
 
   local file="$PROMPTS_DIR_USER/$name.txt"
   if [[ ! -f "$file" ]]; then
@@ -836,7 +822,7 @@ cmd_remove_prompt() {
     echo -e "  ${C_RED}Usage: runvo prompt rm <name>${C_RESET}"
     return 1
   fi
-  [[ "$name" == */* || "$name" == *..* ]] && { echo -e "  ${C_RED}Invalid name.${C_RESET}"; return 1; }
+  validate_prompt_name "$name" || return 1
 
   local file="$PROMPTS_DIR_USER/$name.txt"
   if [[ ! -f "$file" ]]; then
@@ -1020,7 +1006,7 @@ run_quick() {
 show_help() {
   echo ""
   echo -e "    ${C_ROSE}RUNVO${C_RESET} ${C_DIM}— Mobile command center for AI coding agents${C_RESET}"
-  echo -e "    ${C_DIM}────────────────────────────────────────${C_RESET}"
+  print_sep
   echo ""
   echo -e "    ${C_ROSE}USAGE${C_RESET}"
   echo -e "    ${C_CYAN}runvo${C_RESET}                       Interactive menu"
@@ -1126,10 +1112,7 @@ cmd_status() {
     return
   fi
 
-  echo ""
-  echo -e "    ${C_ROSE}STATUS${C_RESET}"
-  echo -e "    ${C_DIM}────────────────────────────────────────${C_RESET}"
-  echo ""
+  print_header "STATUS"
 
   for i in "${!PROJECT_NAMES[@]}"; do
     local name="${PROJECT_NAMES[$i]}"
@@ -1207,10 +1190,7 @@ cmd_kill() {
     return
   fi
 
-  echo ""
-  echo -e "    ${C_ROSE}KILL SESSION${C_RESET}"
-  echo -e "    ${C_DIM}────────────────────────────────────────${C_RESET}"
-  echo ""
+  print_header "KILL SESSION"
   local names=()
   local idx=1
   while read -r sess; do
@@ -1265,7 +1245,7 @@ cmd_clone() {
 
   # Register
   ensure_projects_header
-  if grep -qF "$name |" "$PROJECTS_FILE" 2>/dev/null; then
+  if grep -qE "^[[:space:]]*${name}[[:space:]]*\|" "$PROJECTS_FILE" 2>/dev/null; then
     echo -e "  ${C_YELLOW}Project '$name' already registered${C_RESET}"
   else
     local desc
@@ -1283,10 +1263,7 @@ cmd_clone() {
 
 # --- Doctor: System Diagnostics ---
 cmd_doctor() {
-  echo ""
-  echo -e "    ${C_ROSE}DOCTOR${C_RESET}"
-  echo -e "    ${C_DIM}────────────────────────────────────────${C_RESET}"
-  echo ""
+  print_header "DOCTOR"
 
   local issues=0
 
@@ -1333,7 +1310,7 @@ cmd_doctor() {
 
   if [[ -f "$PROJECTS_FILE" ]]; then
     local proj_count
-    proj_count=$(grep -cv '^[[:space:]]*#\|^$' "$PROJECTS_FILE" 2>/dev/null || echo "0")
+    proj_count=$(grep -cvE '^[[:space:]]*#|^$' "$PROJECTS_FILE" 2>/dev/null || echo "0")
     echo -e "  ${C_GREEN}✓${C_RESET} projects  ${C_DIM}$proj_count registered${C_RESET}"
   else
     echo -e "  ${C_DIM}○${C_RESET} projects  ${C_DIM}none${C_RESET}"
@@ -1412,7 +1389,9 @@ cmd_send() {
   fi
 
   # Send the message
-  tmux send-keys -t "$session_name" "$message" Enter
+  # -l = literal text (prevents control-sequence injection)
+  tmux send-keys -l -t "$session_name" "$message"
+  tmux send-keys -t "$session_name" Enter
   echo -e "  ${C_GREEN}✓ Sent to $proj_name${C_RESET} ${C_DIM}\"$message\"${C_RESET}"
   log_history "$proj_name" "send" "ok"
 }
@@ -1439,10 +1418,7 @@ cmd_peek() {
       echo -e "  ${C_DIM}No active sessions${C_RESET}"
       return
     fi
-    echo ""
-    echo -e "    ${C_ROSE}PEEK${C_RESET}"
-    echo -e "    ${C_DIM}────────────────────────────────────────${C_RESET}"
-    echo ""
+    print_header "PEEK"
     while read -r sess; do
       local name="${sess#runvo-}"
       local last_line
@@ -1459,13 +1435,10 @@ cmd_peek() {
     return 1
   fi
 
-  echo ""
-  echo -e "    ${C_ROSE}PEEK: $target${C_RESET}"
-  echo -e "    ${C_DIM}────────────────────────────────────────${C_RESET}"
-  echo ""
+  print_header "PEEK: $target"
   tmux capture-pane -t "$session_name" -p 2>/dev/null | tail -"$lines"
   echo ""
-  echo -e "    ${C_DIM}────────────────────────────────────────${C_RESET}"
+  print_sep
   echo -e "    ${C_DIM}Attach: runvo attach $target${C_RESET}"
   echo ""
 }
@@ -1492,9 +1465,7 @@ cmd_attach() {
       echo -e "  ${C_DIM}No active sessions${C_RESET}"
       return
     fi
-    echo ""
-    echo -e "    ${C_ROSE}ATTACH${C_RESET}"
-    echo -e "    ${C_DIM}────────────────────────────────────────${C_RESET}"
+    print_header "ATTACH"
     echo ""
     local names=()
     local idx=1
