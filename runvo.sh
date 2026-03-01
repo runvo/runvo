@@ -147,26 +147,48 @@ check_deps() {
 }
 
 # --- Load projects from config ---
+# Format: name | path | description | agent (optional)
 load_projects() {
   PROJECT_NAMES=()
   PROJECT_PATHS=()
   PROJECT_DESCS=()
+  PROJECT_AGENTS=()
 
   [[ -f "$PROJECTS_FILE" ]] || return 1
 
-  while IFS='|' read -r name path desc; do
+  while IFS='|' read -r name path desc agent; do
     [[ "$name" =~ ^[[:space:]]*# ]] && continue
     [[ -z "$name" ]] && continue
     name=$(echo "$name" | xargs)
     path=$(echo "$path" | xargs)
     desc=$(echo "$desc" | xargs)
+    agent=$(echo "$agent" | xargs)
     path="${path/#\~/$HOME}"
     PROJECT_NAMES+=("$name")
     PROJECT_PATHS+=("$path")
     PROJECT_DESCS+=("$desc")
+    PROJECT_AGENTS+=("$agent")
   done < "$PROJECTS_FILE"
 
   [[ ${#PROJECT_NAMES[@]} -eq 0 ]] && return 1
+  return 0
+}
+
+# Get agent for a specific project (falls back to global)
+get_project_agent() {
+  local idx=$1
+  local agent="${PROJECT_AGENTS[$idx]}"
+  [[ -n "$agent" ]] && echo "$agent" || echo "$RUNVO_AGENT"
+}
+
+get_project_agent_flag() {
+  local agent
+  agent=$(get_project_agent "$1")
+  case "$agent" in
+    claude) echo "-p" ;;
+    aider)  echo "--message" ;;
+    *)      echo "$RUNVO_AGENT_PROMPT_FLAG" ;;
+  esac
 }
 
 # --- Load prompts (shipped + user custom; user overrides shipped by name) ---
@@ -231,7 +253,7 @@ show_history() {
 
 # --- Run AI agent with prompt (non-interactive, single shot) ---
 run_agent_prompt() {
-  local project_path=$1 project_name=$2 prompt_text=$3 action_name=$4
+  local project_path=$1 project_name=$2 prompt_text=$3 action_name=$4 proj_idx=${5:-}
 
   if [[ ! -d "$project_path" ]]; then
     echo -e "  ${C_RED}✗ Path not found: $project_path${C_RESET}"
@@ -239,18 +261,25 @@ run_agent_prompt() {
     return 1
   fi
 
-  local flag
-  flag=$(get_agent_flag)
+  # Use per-project agent if available
+  local agent flag
+  if [[ -n "$proj_idx" ]]; then
+    agent=$(get_project_agent "$proj_idx")
+    flag=$(get_project_agent_flag "$proj_idx")
+  else
+    agent="$RUNVO_AGENT"
+    flag=$(get_agent_flag)
+  fi
 
   echo ""
   echo -e "    ${C_ROSE}RUN${C_RESET}"
   echo -e "    ${C_DIM}────────────────────────────────────────${C_RESET}"
   printf "    ${C_DIM}Project${C_RESET}  ${C_WHITE}%s${C_RESET}\n" "$project_name"
   printf "    ${C_DIM}Action${C_RESET}   ${C_CYAN}%s${C_RESET}\n" "$action_name"
-  printf "    ${C_DIM}Agent${C_RESET}    ${C_DIM}%s${C_RESET}\n" "$RUNVO_AGENT"
+  printf "    ${C_DIM}Agent${C_RESET}    ${C_DIM}%s${C_RESET}\n" "$agent"
   echo ""
 
-  local -a agent_cmd=("$RUNVO_AGENT" "$flag" "$prompt_text")
+  local -a agent_cmd=("$agent" "$flag" "$prompt_text")
   (cd "$project_path" && "${agent_cmd[@]}")
   local exit_code=$?
 
@@ -267,8 +296,12 @@ run_agent_prompt() {
 
 # --- Start interactive AI session in tmux ---
 run_agent_interactive() {
-  local project_path=$1 project_name=$2
+  local project_path=$1 project_name=$2 proj_idx=${3:-}
   local session_name="runvo-${project_name}"
+
+  # Per-project agent
+  local agent="$RUNVO_AGENT"
+  [[ -n "$proj_idx" ]] && agent=$(get_project_agent "$proj_idx")
 
   if [[ ! -d "$project_path" ]]; then
     echo -e "  ${C_RED}✗ Path not found: $project_path${C_RESET}"
@@ -294,13 +327,13 @@ run_agent_interactive() {
       2)
         tmux kill-session -t "$session_name" 2>/dev/null
         tmux new-session -d -s "$session_name" -c "$project_path"
-        tmux send-keys -t "$session_name" "$RUNVO_AGENT" Enter
+        tmux send-keys -t "$session_name" "$agent" Enter
         tmux attach-session -t "$session_name"
         ;;
       3)
         tmux kill-session -t "$session_name" 2>/dev/null
         tmux new-session -d -s "$session_name" -c "$project_path"
-        tmux send-keys -t "$session_name" "$RUNVO_AGENT --continue" Enter
+        tmux send-keys -t "$session_name" "$agent --continue" Enter
         tmux attach-session -t "$session_name"
         ;;
       *)
@@ -309,7 +342,7 @@ run_agent_interactive() {
     esac
   else
     tmux new-session -d -s "$session_name" -c "$project_path"
-    tmux send-keys -t "$session_name" "$RUNVO_AGENT" Enter
+    tmux send-keys -t "$session_name" "$agent" Enter
     tmux attach-session -t "$session_name"
   fi
 
@@ -887,7 +920,7 @@ main_menu() {
   local proj_name="${PROJECT_NAMES[$proj_idx]}"
   local proj_path="${PROJECT_PATHS[$proj_idx]}"
 
-  run_agent_interactive "$proj_path" "$proj_name"
+  run_agent_interactive "$proj_path" "$proj_name" "$proj_idx"
 }
 
 # --- Run task flow (numbers only, phone-friendly) ---
@@ -921,11 +954,11 @@ run_task_flow() {
       read -rp "  Prompt: " custom_prompt
       [[ -z "$custom_prompt" ]] && return
       echo ""
-      run_agent_prompt "$proj_path" "$proj_name" "$custom_prompt" "custom"
+      run_agent_prompt "$proj_path" "$proj_name" "$custom_prompt" "custom" "$proj_idx"
       wait_key
       ;;
     i|I)
-      run_agent_interactive "$proj_path" "$proj_name"
+      run_agent_interactive "$proj_path" "$proj_name" "$proj_idx"
       ;;
     *)
       if [[ "$action_choice" =~ ^[0-9]+$ ]] && (( action_choice >= 1 && action_choice <= ${#PROMPT_NAMES[@]} )); then
@@ -934,7 +967,7 @@ run_task_flow() {
         local prompt_text
         prompt_text=$(cat "${PROMPT_FILES[$action_idx]}")
         echo ""
-        run_agent_prompt "$proj_path" "$proj_name" "$prompt_text" "$action_name"
+        run_agent_prompt "$proj_path" "$proj_name" "$prompt_text" "$action_name" "$proj_idx"
         wait_key
       else
         echo -e "  ${C_RED}Invalid${C_RESET}"
@@ -965,17 +998,17 @@ run_quick() {
   local proj_path="${PROJECT_PATHS[$proj_idx]}"
 
   if [[ "$1" == "c" && -n "$2" ]]; then
-    run_agent_prompt "$proj_path" "$proj_name" "$2" "custom"
+    run_agent_prompt "$proj_path" "$proj_name" "$2" "custom" "$proj_idx"
   elif [[ "$1" == "i" ]]; then
-    run_agent_interactive "$proj_path" "$proj_name"
+    run_agent_interactive "$proj_path" "$proj_name" "$proj_idx"
   elif [[ "$1" =~ ^[0-9]+$ ]] && (( $1 >= 1 && $1 <= ${#PROMPT_NAMES[@]} )); then
     local action_idx=$(($1 - 1))
     local action_name="${PROMPT_NAMES[$action_idx]}"
     local prompt_text
     prompt_text=$(cat "${PROMPT_FILES[$action_idx]}")
-    run_agent_prompt "$proj_path" "$proj_name" "$prompt_text" "$action_name"
+    run_agent_prompt "$proj_path" "$proj_name" "$prompt_text" "$action_name" "$proj_idx"
   elif [[ -z "$1" ]]; then
-    run_agent_interactive "$proj_path" "$proj_name"
+    run_agent_interactive "$proj_path" "$proj_name" "$proj_idx"
   else
     echo -e "${C_RED}  Unknown action: $1${C_RESET}"
     echo -e "${C_DIM}  Usage: runvo <project#> [action#|c \"prompt\"|i]${C_RESET}"
@@ -1009,6 +1042,9 @@ show_help() {
   echo -e "    ${C_CYAN}runvo prompt add${C_RESET} ${C_WHITE}<name>${C_RESET}     Add custom prompt"
   echo -e "    ${C_CYAN}runvo prompt edit${C_RESET} ${C_WHITE}<name>${C_RESET}    Edit prompt"
   echo -e "    ${C_CYAN}runvo prompt rm${C_RESET} ${C_WHITE}<name>${C_RESET}      Remove custom prompt"
+  echo -e "    ${C_CYAN}runvo send${C_RESET} ${C_WHITE}<n>${C_RESET} ${C_DIM}\"msg\"${C_RESET}        Send prompt to session"
+  echo -e "    ${C_CYAN}runvo peek${C_RESET} ${C_DIM}[n]${C_RESET}               View session output"
+  echo -e "    ${C_CYAN}runvo attach${C_RESET} ${C_DIM}[name|n]${C_RESET}        Attach to session"
   echo -e "    ${C_CYAN}runvo sessions${C_RESET}              Active tmux sessions"
   echo -e "    ${C_CYAN}runvo kill${C_RESET} ${C_DIM}[name|all]${C_RESET}        Kill session(s)"
   echo -e "    ${C_CYAN}runvo history${C_RESET}               Recent history"
@@ -1340,6 +1376,152 @@ cmd_doctor() {
   echo ""
 }
 
+# --- Send: dispatch message to running session ---
+cmd_send() {
+  local proj_num="$1" message="$2"
+
+  if [[ -z "$proj_num" || -z "$message" ]]; then
+    echo -e "  ${C_RED}Usage: runvo send <project#> \"message\"${C_RESET}"
+    return 1
+  fi
+
+  load_projects || { echo -e "  ${C_DIM}No projects.${C_RESET}"; return 1; }
+
+  if [[ ! "$proj_num" =~ ^[0-9]+$ ]] || (( proj_num < 1 || proj_num > ${#PROJECT_NAMES[@]} )); then
+    echo -e "  ${C_RED}Invalid project number (1-${#PROJECT_NAMES[@]})${C_RESET}"
+    return 1
+  fi
+
+  local proj_idx=$((proj_num - 1))
+  local proj_name="${PROJECT_NAMES[$proj_idx]}"
+  local proj_path="${PROJECT_PATHS[$proj_idx]}"
+  local session_name="runvo-${proj_name}"
+
+  # Start session if not running
+  if ! tmux has-session -t "$session_name" 2>/dev/null; then
+    if [[ ! -d "$proj_path" ]]; then
+      echo -e "  ${C_RED}✗ Path not found: $proj_path${C_RESET}"
+      return 1
+    fi
+    local agent
+    agent=$(get_project_agent "$proj_idx")
+    tmux new-session -d -s "$session_name" -c "$proj_path"
+    tmux send-keys -t "$session_name" "$agent" Enter
+    echo -e "  ${C_DIM}Started new session for $proj_name${C_RESET}"
+    sleep 2  # Brief wait for agent to initialize
+  fi
+
+  # Send the message
+  tmux send-keys -t "$session_name" "$message" Enter
+  echo -e "  ${C_GREEN}✓ Sent to $proj_name${C_RESET} ${C_DIM}\"$message\"${C_RESET}"
+  log_history "$proj_name" "send" "ok"
+}
+
+# --- Peek: view session output without attaching ---
+cmd_peek() {
+  local target="$1" lines="${2:-30}"
+
+  # If numeric, treat as project number
+  if [[ "$target" =~ ^[0-9]+$ ]]; then
+    load_projects || { echo -e "  ${C_DIM}No projects.${C_RESET}"; return 1; }
+    if (( target < 1 || target > ${#PROJECT_NAMES[@]} )); then
+      echo -e "  ${C_RED}Invalid project number (1-${#PROJECT_NAMES[@]})${C_RESET}"
+      return 1
+    fi
+    target="${PROJECT_NAMES[$((target - 1))]}"
+  fi
+
+  # If no target, show all sessions' last line
+  if [[ -z "$target" ]]; then
+    local sessions
+    sessions=$(tmux list-sessions -F '#{session_name}' 2>/dev/null | grep "^runvo-")
+    if [[ -z "$sessions" ]]; then
+      echo -e "  ${C_DIM}No active sessions${C_RESET}"
+      return
+    fi
+    echo ""
+    echo -e "    ${C_ROSE}PEEK${C_RESET}"
+    echo -e "    ${C_DIM}────────────────────────────────────────${C_RESET}"
+    echo ""
+    while read -r sess; do
+      local name="${sess#runvo-}"
+      local last_line
+      last_line=$(tmux capture-pane -t "$sess" -p 2>/dev/null | grep -v '^$' | tail -1)
+      printf "   ${C_GREEN}●${C_RESET} ${C_CYAN}%-16s${C_RESET} ${C_DIM}%s${C_RESET}\n" "$name" "${last_line:0:50}"
+    done <<< "$sessions"
+    echo ""
+    return
+  fi
+
+  local session_name="runvo-${target}"
+  if ! tmux has-session -t "$session_name" 2>/dev/null; then
+    echo -e "  ${C_RED}No active session: $target${C_RESET}"
+    return 1
+  fi
+
+  echo ""
+  echo -e "    ${C_ROSE}PEEK: $target${C_RESET}"
+  echo -e "    ${C_DIM}────────────────────────────────────────${C_RESET}"
+  echo ""
+  tmux capture-pane -t "$session_name" -p 2>/dev/null | tail -"$lines"
+  echo ""
+  echo -e "    ${C_DIM}────────────────────────────────────────${C_RESET}"
+  echo -e "    ${C_DIM}Attach: runvo attach $target${C_RESET}"
+  echo ""
+}
+
+# --- Attach: quick attach to a session ---
+cmd_attach() {
+  local target="$1"
+
+  # If numeric, resolve to project name
+  if [[ "$target" =~ ^[0-9]+$ ]]; then
+    load_projects || { echo -e "  ${C_DIM}No projects.${C_RESET}"; return 1; }
+    if (( target < 1 || target > ${#PROJECT_NAMES[@]} )); then
+      echo -e "  ${C_RED}Invalid project number (1-${#PROJECT_NAMES[@]})${C_RESET}"
+      return 1
+    fi
+    target="${PROJECT_NAMES[$((target - 1))]}"
+  fi
+
+  # No target — interactive pick from active sessions
+  if [[ -z "$target" ]]; then
+    local sessions
+    sessions=$(tmux list-sessions -F '#{session_name}' 2>/dev/null | grep "^runvo-")
+    if [[ -z "$sessions" ]]; then
+      echo -e "  ${C_DIM}No active sessions${C_RESET}"
+      return
+    fi
+    echo ""
+    echo -e "    ${C_ROSE}ATTACH${C_RESET}"
+    echo -e "    ${C_DIM}────────────────────────────────────────${C_RESET}"
+    echo ""
+    local names=()
+    local idx=1
+    while read -r sess; do
+      local display="${sess#runvo-}"
+      names+=("$display")
+      printf "   ${C_WHITE}%d${C_RESET}  %s\n" "$idx" "$display"
+      ((idx++))
+    done <<< "$sessions"
+    echo ""
+    local choice
+    read -rp "  # " choice
+    if [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice <= ${#names[@]} )); then
+      target="${names[$((choice - 1))]}"
+    else
+      return
+    fi
+  fi
+
+  local session_name="runvo-${target}"
+  if tmux has-session -t "$session_name" 2>/dev/null; then
+    tmux attach-session -t "$session_name"
+  else
+    echo -e "  ${C_RED}No active session: $target${C_RESET}"
+  fi
+}
+
 # ===== MAIN =====
 
 load_prompts
@@ -1412,6 +1594,21 @@ if [[ $# -ge 1 ]]; then
       ;;
     doctor)
       cmd_doctor
+      exit 0
+      ;;
+    send)
+      shift
+      cmd_send "$@"
+      exit $?
+      ;;
+    peek)
+      shift
+      cmd_peek "$@"
+      exit 0
+      ;;
+    attach)
+      shift
+      cmd_attach "$@"
       exit 0
       ;;
     sessions)

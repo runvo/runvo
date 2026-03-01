@@ -63,6 +63,11 @@ runvo prompt add <name>     # Create custom prompt
 runvo prompt edit <name>    # Edit prompt in $EDITOR
 runvo prompt rm <name>      # Delete custom prompt
 
+# Remote control (no attach needed!)
+runvo send <n> "fix bug"    # Send prompt to running session
+runvo peek [n]              # View session output without attaching
+runvo attach [name|n]       # Quick attach to session
+
 # Utilities
 runvo sessions              # Active tmux sessions
 runvo kill [name|all]       # Kill session(s)
@@ -87,12 +92,13 @@ No static IP, no port forwarding. Tailscale handles everything.
 ### Projects (`~/.runvo/projects.conf`)
 
 ```
-# name | path | description
-my-backend | ~/Projects/my-backend | Backend API
-my-app     | ~/Projects/my-app     | Side project
+# name | path | description | agent (optional)
+my-backend | ~/Projects/my-backend | Backend API | claude
+my-app     | ~/Projects/my-app     | Side project | aider
+frontend   | ~/Projects/frontend   | React app
 ```
 
-Manage with `runvo add`, `runvo remove`, or `runvo config`.
+Per-project `agent` field is optional — falls back to global config. Manage with `runvo add`, `runvo remove`, or `runvo config`.
 
 ### Prompts
 
