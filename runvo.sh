@@ -5,7 +5,7 @@
 # Copyright (c) 2025 Tran Thai Hoang <admi@tranthaihoang.com>
 # https://github.com/runvo/runvo
 
-RUNVO_VERSION="1.0.2"
+RUNVO_VERSION="1.0.3"
 
 # --- Paths ---
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -526,14 +526,16 @@ check_update() {
 
 do_update() {
   echo -e "  ${C_DIM}Updating...${C_RESET}"
+  # Clear version cache to prevent re-triggering on exec
+  rm -f "$RUNVO_DIR/.latest_version"
   if is_brew_install; then
     # Brew install — upgrade via brew
+    brew update --quiet 2>/dev/null
     if brew upgrade runvo 2>/dev/null; then
-      echo -e "  ${C_GREEN}✓ Updated to $(get_version)${C_RESET}"
+      echo -e "  ${C_GREEN}✓ Updated${C_RESET}"
       return 0
     else
-      echo -e "  ${C_RED}✗ Update failed${C_RESET}"
-      echo -e "  ${C_DIM}Try: brew update && brew upgrade runvo${C_RESET}"
+      echo -e "  ${C_YELLOW}Already up to date.${C_RESET}"
       return 1
     fi
   else
