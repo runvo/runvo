@@ -5,7 +5,7 @@
 # Copyright (c) 2025 Tran Thai Hoang <admi@tranthaihoang.com>
 # https://github.com/runvo/runvo
 
-RUNVO_VERSION="1.0.1"
+RUNVO_VERSION="1.0.2"
 
 # --- Paths ---
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -115,6 +115,38 @@ validate_prompt_name() {
   [[ "$1" == */* || "$1" == *..* ]] && { echo -e "  ${C_RED}Invalid name.${C_RESET}"; return 1; }
 }
 
+# Validate project name (alphanumeric, hyphens, underscores, dots)
+validate_project_name() {
+  [[ "$1" =~ ^[a-zA-Z0-9_.-]+$ ]] || {
+    echo -e "  ${C_RED}Invalid name. Use letters, numbers, hyphens, underscores only.${C_RESET}"
+    return 1
+  }
+}
+
+# Escape string for use in grep -E regex
+quote_regex() { sed 's/[.[\*^$()+?{|\\]/\\&/g' <<< "$1"; }
+
+# Portable reverse lines (tac not available on macOS by default)
+reverse_lines() {
+  if command -v tac &>/dev/null; then tac; else tail -r; fi
+}
+
+# Resolve target (number or name) to project name
+# Usage: resolve_target <target> → sets RESOLVED_NAME
+resolve_target() {
+  local target="$1"
+  if [[ "$target" =~ ^[0-9]+$ ]]; then
+    load_projects || { echo -e "  ${C_DIM}No projects.${C_RESET}" >&2; return 1; }
+    if (( target < 1 || target > ${#PROJECT_NAMES[@]} )); then
+      echo -e "  ${C_RED}Invalid project number (1-${#PROJECT_NAMES[@]})${C_RESET}" >&2
+      return 1
+    fi
+    RESOLVED_NAME="${PROJECT_NAMES[$((target - 1))]}"
+  else
+    RESOLVED_NAME="$target"
+  fi
+}
+
 # --- Agent detection ---
 detect_agent() {
   if command -v claude &>/dev/null; then
@@ -139,6 +171,14 @@ agent_flag_for() {
 }
 
 get_agent_flag() { agent_flag_for "$RUNVO_AGENT"; }
+
+# Resume command for agent (only claude supports --continue)
+agent_resume_cmd() {
+  case "$1" in
+    claude) echo "$1 --continue" ;;
+    *)      echo "$1" ;;
+  esac
+}
 
 # --- Check dependencies ---
 check_deps() {
@@ -233,7 +273,7 @@ show_history() {
     return
   fi
   print_header "HISTORY"
-  tac "$LOG_FILE" | head -20 | while IFS='|' read -r ts project action status; do
+  reverse_lines < "$LOG_FILE" | head -20 | while IFS='|' read -r ts project action status; do
     local short_ts="${ts##* }"  # HH:MM:SS
     short_ts="${short_ts%:*}"    # HH:MM
     local icon="${C_GREEN}●${C_RESET}"
@@ -319,13 +359,17 @@ run_agent_interactive() {
       2)
         tmux kill-session -t "$session_name" 2>/dev/null
         tmux new-session -d -s "$session_name" -c "$project_path"
-        tmux send-keys -t "$session_name" "$agent" Enter
+        tmux send-keys -l -t "$session_name" "$agent"
+        tmux send-keys -t "$session_name" Enter
         tmux attach-session -t "$session_name"
         ;;
       3)
         tmux kill-session -t "$session_name" 2>/dev/null
         tmux new-session -d -s "$session_name" -c "$project_path"
-        tmux send-keys -t "$session_name" "$agent --continue" Enter
+        local resume_cmd
+        resume_cmd=$(agent_resume_cmd "$agent")
+        tmux send-keys -l -t "$session_name" "$resume_cmd"
+        tmux send-keys -t "$session_name" Enter
         tmux attach-session -t "$session_name"
         ;;
       *)
@@ -334,7 +378,8 @@ run_agent_interactive() {
     esac
   else
     tmux new-session -d -s "$session_name" -c "$project_path"
-    tmux send-keys -t "$session_name" "$agent" Enter
+    tmux send-keys -l -t "$session_name" "$agent"
+    tmux send-keys -t "$session_name" Enter
     tmux attach-session -t "$session_name"
   fi
 
@@ -621,9 +666,12 @@ cmd_add_project() {
 
   if [[ -n "$1" && -n "$2" ]]; then
     local name="$1" path="$2" desc="${3:-}"
+    validate_project_name "$name" || return 1
     path="${path/#\~/$HOME}"
 
-    if grep -qE "^[[:space:]]*${name}[[:space:]]*\|" "$PROJECTS_FILE" 2>/dev/null; then
+    local ename
+    ename=$(quote_regex "$name")
+    if grep -qE "^[[:space:]]*${ename}[[:space:]]*\|" "$PROJECTS_FILE" 2>/dev/null; then
       echo -e "  ${C_RED}Project '$name' already exists.${C_RESET}"
       return 1
     fi
@@ -652,7 +700,9 @@ cmd_add_project() {
     read -rp "  Name [$default_name]: " name
     [[ -z "$name" ]] && name="$default_name"
 
-    if grep -qE "^[[:space:]]*${name}[[:space:]]*\|" "$PROJECTS_FILE" 2>/dev/null; then
+    local ename
+    ename=$(quote_regex "$name")
+    if grep -qE "^[[:space:]]*${ename}[[:space:]]*\|" "$PROJECTS_FILE" 2>/dev/null; then
       echo -e "  ${C_RED}Project '$name' already exists.${C_RESET}"
       return 1
     fi
@@ -675,13 +725,12 @@ cmd_new_project() {
   fi
 
   # Validate name
-  if [[ ! "$name" =~ ^[a-zA-Z0-9_-]+$ ]]; then
-    echo -e "  ${C_RED}Invalid name. Use letters, numbers, hyphens, underscores only.${C_RESET}"
-    return 1
-  fi
+  validate_project_name "$name" || return 1
 
   # Check not already registered
-  if grep -qE "^[[:space:]]*${name}[[:space:]]*\|" "$PROJECTS_FILE" 2>/dev/null; then
+  local ename
+  ename=$(quote_regex "$name")
+  if grep -qE "^[[:space:]]*${ename}[[:space:]]*\|" "$PROJECTS_FILE" 2>/dev/null; then
     echo -e "  ${C_RED}Project '$name' already registered.${C_RESET}"
     return 1
   fi
@@ -731,14 +780,16 @@ cmd_remove_project() {
     return 1
   fi
 
-  if ! grep -qE "^[[:space:]]*${name}[[:space:]]*\|" "$PROJECTS_FILE" 2>/dev/null; then
+  local ename
+  ename=$(quote_regex "$name")
+  if ! grep -qE "^[[:space:]]*${ename}[[:space:]]*\|" "$PROJECTS_FILE" 2>/dev/null; then
     echo -e "  ${C_RED}Project '$name' not found.${C_RESET}"
     return 1
   fi
 
   if confirm_action "Remove project '$name'?"; then
     local line_num
-    line_num=$(grep -nE "^[[:space:]]*${name}[[:space:]]*\|" "$PROJECTS_FILE" | head -1 | cut -d: -f1)
+    line_num=$(grep -nE "^[[:space:]]*${ename}[[:space:]]*\|" "$PROJECTS_FILE" | head -1 | cut -d: -f1)
     if [[ -n "$line_num" ]]; then
       sed -i.bak "${line_num}d" "$PROJECTS_FILE"
       rm -f "$PROJECTS_FILE.bak"
@@ -1020,6 +1071,7 @@ show_help() {
   echo -e "    ${C_CYAN}runvo new${C_RESET} ${C_DIM}[name]${C_RESET}            Create new project"
   echo -e "    ${C_CYAN}runvo add${C_RESET} ${C_DIM}[name path desc]${C_RESET}  Register existing project"
   echo -e "    ${C_CYAN}runvo clone${C_RESET} ${C_WHITE}<url>${C_RESET} ${C_DIM}[name]${C_RESET}   Clone repo & register"
+  echo -e "    ${C_CYAN}runvo edit${C_RESET} ${C_DIM}[n|name]${C_RESET}          Open project in editor"
   echo -e "    ${C_CYAN}runvo remove${C_RESET} ${C_WHITE}<name>${C_RESET}         Remove project"
   echo -e "    ${C_CYAN}runvo list${C_RESET}                  List projects"
   echo -e "    ${C_CYAN}runvo status${C_RESET}                Git status dashboard"
@@ -1245,7 +1297,9 @@ cmd_clone() {
 
   # Register
   ensure_projects_header
-  if grep -qE "^[[:space:]]*${name}[[:space:]]*\|" "$PROJECTS_FILE" 2>/dev/null; then
+  local ename
+  ename=$(quote_regex "$name")
+  if grep -qE "^[[:space:]]*${ename}[[:space:]]*\|" "$PROJECTS_FILE" 2>/dev/null; then
     echo -e "  ${C_YELLOW}Project '$name' already registered${C_RESET}"
   else
     local desc
@@ -1383,7 +1437,8 @@ cmd_send() {
     local agent
     agent=$(get_project_agent "$proj_idx")
     tmux new-session -d -s "$session_name" -c "$proj_path"
-    tmux send-keys -t "$session_name" "$agent" Enter
+    tmux send-keys -l -t "$session_name" "$agent"
+    tmux send-keys -t "$session_name" Enter
     echo -e "  ${C_DIM}Started new session for $proj_name${C_RESET}"
     sleep 2  # Brief wait for agent to initialize
   fi
@@ -1400,14 +1455,10 @@ cmd_send() {
 cmd_peek() {
   local target="$1" lines="${2:-30}"
 
-  # If numeric, treat as project number
-  if [[ "$target" =~ ^[0-9]+$ ]]; then
-    load_projects || { echo -e "  ${C_DIM}No projects.${C_RESET}"; return 1; }
-    if (( target < 1 || target > ${#PROJECT_NAMES[@]} )); then
-      echo -e "  ${C_RED}Invalid project number (1-${#PROJECT_NAMES[@]})${C_RESET}"
-      return 1
-    fi
-    target="${PROJECT_NAMES[$((target - 1))]}"
+  # Resolve numeric target to project name
+  if [[ -n "$target" ]]; then
+    resolve_target "$target" || return 1
+    target="$RESOLVED_NAME"
   fi
 
   # If no target, show all sessions' last line
@@ -1447,14 +1498,10 @@ cmd_peek() {
 cmd_attach() {
   local target="$1"
 
-  # If numeric, resolve to project name
-  if [[ "$target" =~ ^[0-9]+$ ]]; then
-    load_projects || { echo -e "  ${C_DIM}No projects.${C_RESET}"; return 1; }
-    if (( target < 1 || target > ${#PROJECT_NAMES[@]} )); then
-      echo -e "  ${C_RED}Invalid project number (1-${#PROJECT_NAMES[@]})${C_RESET}"
-      return 1
-    fi
-    target="${PROJECT_NAMES[$((target - 1))]}"
+  # Resolve numeric target to project name
+  if [[ -n "$target" ]]; then
+    resolve_target "$target" || return 1
+    target="$RESOLVED_NAME"
   fi
 
   # No target — interactive pick from active sessions
@@ -1491,6 +1538,52 @@ cmd_attach() {
   else
     echo -e "  ${C_RED}No active session: $target${C_RESET}"
   fi
+}
+
+# --- Edit: open project in editor ---
+cmd_edit_project() {
+  local target="$1"
+
+  load_projects || { echo -e "  ${C_DIM}No projects.${C_RESET}"; return 1; }
+
+  if [[ -z "$target" ]]; then
+    # Interactive pick
+    echo ""
+    display_projects
+    echo ""
+    local choice
+    read -rp "  # " choice
+    [[ -z "$choice" ]] && return
+    target="$choice"
+  fi
+
+  resolve_target "$target" || return 1
+  local name="$RESOLVED_NAME"
+
+  # Find project index
+  local idx=-1
+  for i in "${!PROJECT_NAMES[@]}"; do
+    [[ "${PROJECT_NAMES[$i]}" == "$name" ]] && { idx=$i; break; }
+  done
+  [[ $idx -lt 0 ]] && { echo -e "  ${C_RED}Project '$name' not found${C_RESET}"; return 1; }
+
+  local proj_path="${PROJECT_PATHS[$idx]}"
+  if [[ ! -d "$proj_path" ]]; then
+    echo -e "  ${C_RED}✗ Path not found: $proj_path${C_RESET}"
+    return 1
+  fi
+
+  # Open in best available editor
+  if command -v code &>/dev/null; then
+    code "$proj_path"
+  elif command -v cursor &>/dev/null; then
+    cursor "$proj_path"
+  elif command -v subl &>/dev/null; then
+    subl "$proj_path"
+  else
+    cd "$proj_path" && "${EDITOR:-vi}" .
+  fi
+  echo -e "  ${C_GREEN}✓ Opened: $name${C_RESET}"
 }
 
 # ===== MAIN =====
@@ -1561,6 +1654,11 @@ if [[ $# -ge 1 ]]; then
     clone)
       shift
       cmd_clone "$@"
+      exit $?
+      ;;
+    edit)
+      shift
+      cmd_edit_project "$@"
       exit $?
       ;;
     doctor)

@@ -51,6 +51,7 @@ runvo <n> i                 # Interactive session on project #n
 runvo new [name]            # Create new project (mkdir + git init + register)
 runvo add [name path desc]  # Register existing project
 runvo clone <url> [name]    # Clone repo & register in one step
+runvo edit [n|name]         # Open project in editor
 runvo remove <name>         # Remove project
 runvo list                  # List projects
 runvo status                # Git status dashboard for all projects

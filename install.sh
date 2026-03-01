@@ -117,6 +117,20 @@ fi
 # Make available immediately
 eval "$SHELL_BLOCK" 2>/dev/null || true
 
+# --- Setup completions for git install ---
+if [[ -f "$RUNVO_DIR/completions/runvo.bash" ]]; then
+  if [[ -f "$HOME/.bashrc" ]] || [[ "$SHELL" == */bash ]]; then
+    grep -qF "completions/runvo.bash" "$HOME/.bashrc" 2>/dev/null || \
+      echo "source \"$RUNVO_DIR/completions/runvo.bash\"" >> "$HOME/.bashrc"
+  fi
+fi
+if [[ -f "$RUNVO_DIR/completions/runvo.zsh" ]]; then
+  if [[ -f "$HOME/.zshrc" ]] || [[ "$SHELL" == */zsh ]]; then
+    grep -qF "completions/runvo.zsh" "$HOME/.zshrc" 2>/dev/null || \
+      echo "source \"$RUNVO_DIR/completions/runvo.zsh\"" >> "$HOME/.zshrc"
+  fi
+fi
+
 # --- Check for AI agent ---
 echo ""
 if command -v claude &>/dev/null; then
