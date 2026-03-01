@@ -565,9 +565,14 @@ check_update_silent() {
       local latest
       latest=$(cat "$cache_file" 2>/dev/null)
       if [[ -n "$latest" && "$latest" != "$RUNVO_VERSION" ]]; then
-        echo -e "${C_YELLOW}    ⬆ Update available ($RUNVO_VERSION → $latest)${C_RESET}"
-        if confirm_action "Update now?"; then
-          do_update && exec bash "${BASH_SOURCE[0]}" "$@"
+        # Only prompt if latest is actually newer (not a downgrade)
+        local newest
+        newest=$(printf '%s\n' "$RUNVO_VERSION" "$latest" | sort -V | tail -1)
+        if [[ "$newest" == "$latest" ]]; then
+          echo -e "${C_YELLOW}    ⬆ Update available ($RUNVO_VERSION → $latest)${C_RESET}"
+          if confirm_action "Update now?"; then
+            do_update && exec bash "${BASH_SOURCE[0]}" "$@"
+          fi
         fi
       fi
     fi
