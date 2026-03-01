@@ -1000,16 +1000,20 @@ show_help() {
   echo -e "    ${C_CYAN}runvo setup${C_RESET}                 Setup wizard"
   echo -e "    ${C_CYAN}runvo new${C_RESET} ${C_DIM}[name]${C_RESET}            Create new project"
   echo -e "    ${C_CYAN}runvo add${C_RESET} ${C_DIM}[name path desc]${C_RESET}  Register existing project"
+  echo -e "    ${C_CYAN}runvo clone${C_RESET} ${C_WHITE}<url>${C_RESET} ${C_DIM}[name]${C_RESET}   Clone repo & register"
   echo -e "    ${C_CYAN}runvo remove${C_RESET} ${C_WHITE}<name>${C_RESET}         Remove project"
   echo -e "    ${C_CYAN}runvo list${C_RESET}                  List projects"
+  echo -e "    ${C_CYAN}runvo status${C_RESET}                Git status dashboard"
   echo -e "    ${C_CYAN}runvo config${C_RESET}                Edit projects.conf"
   echo -e "    ${C_CYAN}runvo prompts${C_RESET}               List prompts"
   echo -e "    ${C_CYAN}runvo prompt add${C_RESET} ${C_WHITE}<name>${C_RESET}     Add custom prompt"
   echo -e "    ${C_CYAN}runvo prompt edit${C_RESET} ${C_WHITE}<name>${C_RESET}    Edit prompt"
   echo -e "    ${C_CYAN}runvo prompt rm${C_RESET} ${C_WHITE}<name>${C_RESET}      Remove custom prompt"
   echo -e "    ${C_CYAN}runvo sessions${C_RESET}              Active tmux sessions"
+  echo -e "    ${C_CYAN}runvo kill${C_RESET} ${C_DIM}[name|all]${C_RESET}        Kill session(s)"
   echo -e "    ${C_CYAN}runvo history${C_RESET}               Recent history"
   echo -e "    ${C_CYAN}runvo ssh-auto${C_RESET}              Toggle SSH auto-launch"
+  echo -e "    ${C_CYAN}runvo doctor${C_RESET}                Check system health"
   echo -e "    ${C_CYAN}runvo update${C_RESET}                Check & install updates"
   echo -e "    ${C_CYAN}runvo version${C_RESET}               Show version"
   echo ""
@@ -1078,6 +1082,264 @@ cmd_ssh_auto() {
   fi
 }
 
+# --- Status Dashboard ---
+cmd_status() {
+  load_projects 2>/dev/null
+  if [[ ${#PROJECT_NAMES[@]} -eq 0 ]]; then
+    echo -e "  ${C_DIM}No projects. Run: runvo setup${C_RESET}"
+    return
+  fi
+
+  echo ""
+  echo -e "    ${C_ROSE}STATUS${C_RESET}"
+  echo -e "    ${C_DIM}────────────────────────────────────────${C_RESET}"
+  echo ""
+
+  for i in "${!PROJECT_NAMES[@]}"; do
+    local name="${PROJECT_NAMES[$i]}"
+    local path="${PROJECT_PATHS[$i]}"
+
+    # Session indicator
+    local sess=" "
+    tmux has-session -t "runvo-${name}" 2>/dev/null && sess="${C_GREEN}●${C_RESET}"
+
+    if [[ ! -d "$path" ]]; then
+      printf "   %b ${C_CYAN}%-16s${C_RESET} ${C_RED}path missing${C_RESET}\n" "$sess" "$name"
+      continue
+    fi
+
+    if [[ ! -d "$path/.git" ]]; then
+      printf "   %b ${C_CYAN}%-16s${C_RESET} ${C_DIM}not a git repo${C_RESET}\n" "$sess" "$name"
+      continue
+    fi
+
+    # Git info
+    local branch changes ahead behind status_parts=()
+    branch=$(git -C "$path" branch --show-current 2>/dev/null || echo "?")
+    changes=$(git -C "$path" status --porcelain 2>/dev/null | wc -l | tr -d ' ')
+    ahead=$(git -C "$path" rev-list --count @{upstream}..HEAD 2>/dev/null || echo "0")
+    behind=$(git -C "$path" rev-list --count HEAD..@{upstream} 2>/dev/null || echo "0")
+
+    [[ "$changes" -gt 0 ]] && status_parts+=("${C_YELLOW}${changes} changed${C_RESET}")
+    [[ "$ahead" -gt 0 ]] && status_parts+=("${C_GREEN}↑${ahead}${C_RESET}")
+    [[ "$behind" -gt 0 ]] && status_parts+=("${C_RED}↓${behind}${C_RESET}")
+    [[ ${#status_parts[@]} -eq 0 ]] && status_parts+=("${C_GREEN}clean${C_RESET}")
+
+    local status_str
+    status_str=$(IFS=' '; echo "${status_parts[*]}")
+    printf "   %b ${C_CYAN}%-16s${C_RESET} ${C_DIM}%-12s${C_RESET} %b\n" \
+      "$sess" "$name" "$branch" "$status_str"
+  done
+  echo ""
+}
+
+# --- Kill Sessions ---
+cmd_kill() {
+  local target="$1"
+
+  if [[ "$target" == "all" ]]; then
+    local sessions
+    sessions=$(tmux list-sessions -F '#{session_name}' 2>/dev/null | grep "^runvo-")
+    if [[ -z "$sessions" ]]; then
+      echo -e "  ${C_DIM}No active runvo sessions${C_RESET}"
+      return
+    fi
+    local count=0
+    while read -r sess; do
+      tmux kill-session -t "$sess" 2>/dev/null && ((count++))
+    done <<< "$sessions"
+    echo -e "  ${C_GREEN}✓ Killed $count session(s)${C_RESET}"
+    return
+  fi
+
+  if [[ -n "$target" ]]; then
+    local session_name="runvo-${target}"
+    if tmux has-session -t "$session_name" 2>/dev/null; then
+      tmux kill-session -t "$session_name"
+      echo -e "  ${C_GREEN}✓ Killed: $target${C_RESET}"
+    else
+      echo -e "  ${C_RED}No session: $target${C_RESET}"
+    fi
+    return
+  fi
+
+  # Interactive: list and pick
+  local sessions
+  sessions=$(tmux list-sessions -F '#{session_name}' 2>/dev/null | grep "^runvo-")
+  if [[ -z "$sessions" ]]; then
+    echo -e "  ${C_DIM}No active runvo sessions${C_RESET}"
+    return
+  fi
+
+  echo ""
+  echo -e "    ${C_ROSE}KILL SESSION${C_RESET}"
+  echo -e "    ${C_DIM}────────────────────────────────────────${C_RESET}"
+  echo ""
+  local names=()
+  local idx=1
+  while read -r sess; do
+    local display="${sess#runvo-}"
+    names+=("$display")
+    printf "   ${C_WHITE}%d${C_RESET}  %s\n" "$idx" "$display"
+    ((idx++))
+  done <<< "$sessions"
+  echo ""
+  echo -e "   ${C_WHITE}a${C_RESET}  Kill all"
+  echo ""
+
+  local choice
+  read -rp "  # " choice
+
+  if [[ "$choice" == "a" ]]; then
+    cmd_kill all
+  elif [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice <= ${#names[@]} )); then
+    cmd_kill "${names[$((choice - 1))]}"
+  fi
+}
+
+# --- Clone & Register ---
+cmd_clone() {
+  local url="$1" name="$2"
+
+  if [[ -z "$url" ]]; then
+    echo -e "  ${C_RED}Usage: runvo clone <git-url> [name]${C_RESET}"
+    return 1
+  fi
+
+  # Derive name from URL if not given
+  if [[ -z "$name" ]]; then
+    name=$(basename "$url" .git)
+  fi
+
+  local target_dir="$HOME/Projects/$name"
+  read -rp "  Path [$target_dir]: " custom_path
+  [[ -n "$custom_path" ]] && target_dir="${custom_path/#\~/$HOME}"
+
+  if [[ -d "$target_dir" ]]; then
+    echo -e "  ${C_YELLOW}Directory exists: $target_dir${C_RESET}"
+    confirm_action "Use existing?" || return
+  else
+    echo -e "  ${C_DIM}Cloning...${C_RESET}"
+    if ! git clone "$url" "$target_dir"; then
+      echo -e "  ${C_RED}✗ Clone failed${C_RESET}"
+      return 1
+    fi
+    echo -e "  ${C_GREEN}✓ Cloned${C_RESET}"
+  fi
+
+  # Register
+  ensure_projects_header
+  if grep -qF "$name |" "$PROJECTS_FILE" 2>/dev/null; then
+    echo -e "  ${C_YELLOW}Project '$name' already registered${C_RESET}"
+  else
+    local desc
+    read -rp "  Description (optional): " desc
+    echo "$name | $target_dir | $desc" >> "$PROJECTS_FILE"
+    echo -e "  ${C_GREEN}✓ Registered: $name${C_RESET}"
+  fi
+
+  # Offer session
+  if confirm_action "Open AI session now?"; then
+    load_projects 2>/dev/null
+    run_agent_interactive "$target_dir" "$name"
+  fi
+}
+
+# --- Doctor: System Diagnostics ---
+cmd_doctor() {
+  echo ""
+  echo -e "    ${C_ROSE}DOCTOR${C_RESET}"
+  echo -e "    ${C_DIM}────────────────────────────────────────${C_RESET}"
+  echo ""
+
+  local issues=0
+
+  # Check core deps
+  for dep in tmux git; do
+    if command -v "$dep" &>/dev/null; then
+      local ver
+      ver=$("$dep" -V 2>/dev/null || "$dep" --version 2>/dev/null | head -1)
+      echo -e "  ${C_GREEN}✓${C_RESET} $dep  ${C_DIM}$ver${C_RESET}"
+    else
+      echo -e "  ${C_RED}✗${C_RESET} $dep  ${C_RED}not installed${C_RESET}"
+      ((issues++))
+    fi
+  done
+
+  # Check AI agent
+  if [[ -n "$RUNVO_AGENT" ]] && command -v "$RUNVO_AGENT" &>/dev/null; then
+    local agent_ver
+    agent_ver=$("$RUNVO_AGENT" --version 2>/dev/null | head -1 || echo "installed")
+    echo -e "  ${C_GREEN}✓${C_RESET} $RUNVO_AGENT  ${C_DIM}$agent_ver${C_RESET}"
+  else
+    echo -e "  ${C_YELLOW}△${C_RESET} AI agent  ${C_YELLOW}none detected${C_RESET}"
+    ((issues++))
+  fi
+
+  # Optional deps
+  for dep in gum tailscale; do
+    if command -v "$dep" &>/dev/null; then
+      echo -e "  ${C_GREEN}✓${C_RESET} $dep  ${C_DIM}(optional)${C_RESET}"
+    else
+      echo -e "  ${C_DIM}○${C_RESET} $dep  ${C_DIM}not installed (optional)${C_RESET}"
+    fi
+  done
+
+  echo ""
+
+  # Check config
+  echo -e "  ${C_WHITE}Config${C_RESET}"
+  if [[ -f "$CONFIG_FILE" ]]; then
+    echo -e "  ${C_GREEN}✓${C_RESET} config  ${C_DIM}$CONFIG_FILE${C_RESET}"
+  else
+    echo -e "  ${C_DIM}○${C_RESET} config  ${C_DIM}not created yet${C_RESET}"
+  fi
+
+  if [[ -f "$PROJECTS_FILE" ]]; then
+    local proj_count
+    proj_count=$(grep -cv '^[[:space:]]*#\|^$' "$PROJECTS_FILE" 2>/dev/null || echo "0")
+    echo -e "  ${C_GREEN}✓${C_RESET} projects  ${C_DIM}$proj_count registered${C_RESET}"
+  else
+    echo -e "  ${C_DIM}○${C_RESET} projects  ${C_DIM}none${C_RESET}"
+  fi
+
+  # Check project paths
+  load_projects 2>/dev/null
+  local bad_paths=0
+  for i in "${!PROJECT_NAMES[@]}"; do
+    if [[ ! -d "${PROJECT_PATHS[$i]}" ]]; then
+      echo -e "  ${C_RED}✗${C_RESET} ${PROJECT_NAMES[$i]}  ${C_RED}path missing: ${PROJECT_PATHS[$i]}${C_RESET}"
+      ((bad_paths++))
+      ((issues++))
+    fi
+  done
+
+  # Custom prompts count
+  local custom_count=0
+  for f in "$PROMPTS_DIR_USER"/*.txt; do
+    [[ -f "$f" ]] && ((custom_count++))
+  done
+  echo -e "  ${C_GREEN}✓${C_RESET} prompts  ${C_DIM}${#PROMPT_NAMES[@]} total ($custom_count custom)${C_RESET}"
+
+  # Active sessions
+  local sess_count
+  sess_count=$(tmux list-sessions 2>/dev/null | grep -c "^runvo-" || echo "0")
+  echo -e "  ${C_GREEN}✓${C_RESET} sessions  ${C_DIM}$sess_count active${C_RESET}"
+
+  # Install method
+  local method="git"
+  is_brew_install && method="brew"
+  echo -e "  ${C_GREEN}✓${C_RESET} install  ${C_DIM}$method ($(get_version))${C_RESET}"
+
+  echo ""
+  if [[ $issues -eq 0 ]]; then
+    echo -e "  ${C_GREEN}All good!${C_RESET}"
+  else
+    echo -e "  ${C_YELLOW}$issues issue(s) found${C_RESET}"
+  fi
+  echo ""
+}
+
 # ===== MAIN =====
 
 load_prompts
@@ -1133,6 +1395,24 @@ if [[ $# -ge 1 ]]; then
         *)    echo -e "  ${C_RED}Usage: runvo prompt [add|edit|rm] <name>${C_RESET}" ;;
       esac
       exit $?
+      ;;
+    status)
+      cmd_status
+      exit 0
+      ;;
+    kill)
+      shift
+      cmd_kill "$@"
+      exit 0
+      ;;
+    clone)
+      shift
+      cmd_clone "$@"
+      exit $?
+      ;;
+    doctor)
+      cmd_doctor
+      exit 0
       ;;
     sessions)
       show_sessions

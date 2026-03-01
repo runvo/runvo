@@ -50,8 +50,10 @@ runvo <n> i                 # Interactive session on project #n
 # Project management
 runvo new [name]            # Create new project (mkdir + git init + register)
 runvo add [name path desc]  # Register existing project
+runvo clone <url> [name]    # Clone repo & register in one step
 runvo remove <name>         # Remove project
 runvo list                  # List projects
+runvo status                # Git status dashboard for all projects
 runvo config                # Edit projects.conf in $EDITOR
 runvo setup                 # Setup wizard
 
@@ -63,9 +65,11 @@ runvo prompt rm <name>      # Delete custom prompt
 
 # Utilities
 runvo sessions              # Active tmux sessions
+runvo kill [name|all]       # Kill session(s)
 runvo history               # Recent run history
 runvo update                # Check & install updates
 runvo ssh-auto              # Toggle SSH auto-launch
+runvo doctor                # Check system health & dependencies
 runvo version               # Show version
 runvo help                  # Full help
 ```
