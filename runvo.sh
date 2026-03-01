@@ -1141,7 +1141,7 @@ if [[ $# -ge 1 ]]; then
       exit 0
       ;;
     version|--version|-v)
-      local install_type="git"
+      install_type="git"
       is_brew_install && install_type="brew"
       echo -e "  ${C_WHITE}runvo${C_RESET} $(get_version) ${C_DIM}($install_type)${C_RESET}"
       echo -e "  ${C_DIM}Agent: $RUNVO_AGENT${C_RESET}"
