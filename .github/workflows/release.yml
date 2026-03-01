@@ -1,4 +1,4 @@
-# Auto-create GitHub Release when a version tag is pushed
+# Auto-create GitHub Release + update Homebrew formula when a version tag is pushed
 # Usage: git tag v1.0.2 && git push origin v1.0.2
 name: Release
 
@@ -20,3 +20,43 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
+
+  update-homebrew:
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get tag version
+        id: tag
+        run: echo "version=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+
+      - name: Download tarball and compute SHA-256
+        id: sha
+        run: |
+          TAG="${{ steps.tag.outputs.version }}"
+          URL="https://github.com/runvo/runvo/archive/refs/tags/${TAG}.tar.gz"
+          SHA=$(curl -sL "$URL" | shasum -a 256 | awk '{print $1}')
+          echo "sha256=$SHA" >> "$GITHUB_OUTPUT"
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+
+      - name: Update Homebrew formula
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          TAG="${{ steps.tag.outputs.version }}"
+          SHA="${{ steps.sha.outputs.sha256 }}"
+          URL="${{ steps.sha.outputs.url }}"
+
+          # Clone homebrew tap
+          git clone https://x-access-token:${GH_TOKEN}@github.com/runvo/homebrew-runvo.git
+          cd homebrew-runvo
+
+          # Update url and sha256 in formula
+          sed -i "s|url \".*\"|url \"${URL}\"|" Formula/runvo.rb
+          sed -i "s|sha256 \".*\"|sha256 \"${SHA}\"|" Formula/runvo.rb
+
+          # Commit and push
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/runvo.rb
+          git commit -m "bump runvo to ${TAG}"
+          git push
