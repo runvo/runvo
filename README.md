@@ -41,6 +41,7 @@ runvo <n>                   # Open project #n directly
 # One-shot commands
 runvo <n> <a>               # Run preset action #a on project #n
 runvo <n> c "fix the bug"   # Custom prompt on project #n
+runvo <n> i                 # Interactive session on project #n
 
 # Project management
 runvo new [name]            # Create new project (mkdir + git init + register)
