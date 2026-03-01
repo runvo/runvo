@@ -43,7 +43,8 @@ runvo <n> <a>               # Run preset action #a on project #n
 runvo <n> c "fix the bug"   # Custom prompt on project #n
 
 # Project management
-runvo add [name path desc]  # Add project (interactive or one-liner)
+runvo new [name]            # Create new project (mkdir + git init + register)
+runvo add [name path desc]  # Register existing project
 runvo remove <name>         # Remove project
 runvo list                  # List projects
 runvo config                # Edit projects.conf in $EDITOR

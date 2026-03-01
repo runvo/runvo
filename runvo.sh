@@ -209,14 +209,21 @@ show_history() {
     echo -e "  ${C_DIM}No history yet.${C_RESET}"
     return
   fi
-  echo -e "  ${C_WHITE}HISTORY${C_RESET} ${C_DIM}(last $LOG_MAX)${C_RESET}"
-  echo -e "  ${C_DIM}────────────────────────────────────────────${C_RESET}"
+  echo ""
+  echo -e "    ${C_ROSE}HISTORY${C_RESET}"
+  echo -e "    ${C_DIM}────────────────────────────────────────${C_RESET}"
+  echo ""
   tac "$LOG_FILE" | head -20 | while IFS='|' read -r ts project action status; do
-    if [[ "$status" == "ok" ]]; then
-      echo -e "  ${C_GREEN}✓${C_RESET} ${C_DIM}$ts${C_RESET}  $project  ${C_CYAN}$action${C_RESET}"
-    else
-      echo -e "  ${C_RED}✗${C_RESET} ${C_DIM}$ts${C_RESET}  $project  ${C_CYAN}$action${C_RESET}  ${C_RED}($status)${C_RESET}"
+    local short_ts="${ts##* }"  # HH:MM:SS
+    short_ts="${short_ts%:*}"    # HH:MM
+    local icon="${C_GREEN}●${C_RESET}"
+    local suffix=""
+    if [[ "$status" != "ok" ]]; then
+      icon="${C_RED}●${C_RESET}"
+      suffix=" ${C_DIM}($status)${C_RESET}"
     fi
+    printf "   %b ${C_DIM}%s${C_RESET}  ${C_WHITE}%-16s${C_RESET} ${C_CYAN}%s${C_RESET}%b\n" \
+      "$icon" "$short_ts" "$project" "$action" "$suffix"
   done
   echo ""
 }
@@ -234,11 +241,12 @@ run_agent_prompt() {
   local flag
   flag=$(get_agent_flag)
 
-  echo -e "  ${C_DIM}────────────────────────────────────────────${C_RESET}"
-  echo -e "  ${C_PINK}▸ Project:${C_RESET} $project_name"
-  echo -e "  ${C_PINK}▸ Action:${C_RESET}  $action_name"
-  echo -e "  ${C_PINK}▸ Agent:${C_RESET}   $RUNVO_AGENT"
-  echo -e "  ${C_DIM}────────────────────────────────────────────${C_RESET}"
+  echo ""
+  echo -e "    ${C_ROSE}RUN${C_RESET}"
+  echo -e "    ${C_DIM}────────────────────────────────────────${C_RESET}"
+  printf "    ${C_DIM}Project${C_RESET}  ${C_WHITE}%s${C_RESET}\n" "$project_name"
+  printf "    ${C_DIM}Action${C_RESET}   ${C_CYAN}%s${C_RESET}\n" "$action_name"
+  printf "    ${C_DIM}Agent${C_RESET}    ${C_DIM}%s${C_RESET}\n" "$RUNVO_AGENT"
   echo ""
 
   local -a agent_cmd=("$RUNVO_AGENT" "$flag" "$prompt_text")
@@ -269,11 +277,12 @@ run_agent_interactive() {
   if tmux has-session -t "$session_name" 2>/dev/null; then
     # Session exists — ask: attach or new
     echo ""
-    echo -e "  ${C_PINK}▸ $project_name${C_RESET} ${C_DIM}— session running${C_RESET}"
+    echo -e "    ${C_ROSE}SESSION: $project_name${C_RESET}"
+    echo -e "    ${C_DIM}────────────────────────────────────────${C_RESET}"
     echo ""
-    echo -e "  ${C_WHITE} 1${C_RESET}  ${C_GREEN}Continue session${C_RESET} ${C_DIM}(attach)${C_RESET}"
-    echo -e "  ${C_WHITE} 2${C_RESET}  ${C_CYAN}New chat${C_RESET} ${C_DIM}(kill old + start fresh)${C_RESET}"
-    echo -e "  ${C_WHITE} 3${C_RESET}  ${C_CYAN}Resume last chat${C_RESET} ${C_DIM}(claude --continue)${C_RESET}"
+    echo -e "   ${C_WHITE}1${C_RESET}  Continue session"
+    echo -e "   ${C_WHITE}2${C_RESET}  New chat"
+    echo -e "   ${C_WHITE}3${C_RESET}  Resume last chat"
     echo ""
     local choice
     read -rp "  # " choice
@@ -308,20 +317,23 @@ run_agent_interactive() {
 
 # --- List active tmux sessions ---
 show_sessions() {
-  echo -e "  ${C_WHITE}ACTIVE SESSIONS${C_RESET}"
-  echo -e "  ${C_DIM}────────────────────────────────────────────${C_RESET}"
+  echo ""
+  echo -e "    ${C_ROSE}SESSIONS${C_RESET}"
+  echo -e "    ${C_DIM}────────────────────────────────────────${C_RESET}"
+  echo ""
   local sessions
   sessions=$(tmux list-sessions 2>/dev/null | grep "^runvo-")
   if [[ -z "$sessions" ]]; then
-    echo -e "  ${C_DIM}No active sessions${C_RESET}"
+    echo -e "   ${C_DIM}No active sessions${C_RESET}"
   else
     local idx=1
     while read -r line; do
-      echo -e "  ${C_WHITE}$idx${C_RESET}  $line"
+      local display="${line#runvo-}"
+      printf "   ${C_WHITE}%d${C_RESET}  %s\n" "$idx" "$display"
       ((idx++))
     done <<< "$sessions"
     echo ""
-    echo -e "  ${C_DIM}Attach: tmux attach -t <name>${C_RESET}"
+    echo -e "   ${C_DIM}Attach: tmux attach -t runvo-<name>${C_RESET}"
   fi
   echo ""
 }
@@ -329,41 +341,53 @@ show_sessions() {
 # --- Display project list ---
 display_projects() {
   if [[ ${#PROJECT_NAMES[@]} -eq 0 ]]; then
-    echo -e "  ${C_DIM}No projects configured. Run: runvo setup${C_RESET}"
+    echo -e "   ${C_DIM}No projects configured. Run: runvo setup${C_RESET}"
     return
   fi
+  # Dynamic column width (cap 10-20)
+  local max_len=10
+  for name in "${PROJECT_NAMES[@]}"; do
+    (( ${#name} > max_len )) && max_len=${#name}
+  done
+  (( max_len > 20 )) && max_len=20
+  local col_w=$((max_len + 2))
+
   for i in "${!PROJECT_NAMES[@]}"; do
     local num=$((i + 1))
     local name="${PROJECT_NAMES[$i]}"
     local desc="${PROJECT_DESCS[$i]}"
-    local status=""
-    # Show indicator if tmux session is running
+    local indicator="  "
     if tmux has-session -t "runvo-${name}" 2>/dev/null; then
-      status="${C_GREEN}●${C_RESET} "
+      indicator="${C_GREEN}●${C_RESET} "
     fi
-    printf "  ${C_WHITE}%2d${C_RESET}  ${status}${C_CYAN}%-20s${C_RESET} ${C_DIM}%s${C_RESET}\n" \
-      "$num" "$name" "$desc"
+    printf "   ${C_WHITE}%d${C_RESET}  %b${C_CYAN}%-${col_w}s${C_RESET} ${C_DIM}%s${C_RESET}\n" \
+      "$num" "$indicator" "$name" "$desc"
   done
 }
 
 # --- Display actions menu ---
 display_actions() {
-  echo -e "  ${C_WHITE}Actions:${C_RESET}"
+  echo -e "    ${C_ROSE}ACTIONS${C_RESET}"
+  echo -e "    ${C_DIM}────────────────────────────────────────${C_RESET}"
+  echo ""
   local idx=1
   for name in "${PROMPT_NAMES[@]}"; do
-    printf "  ${C_WHITE}%2d${C_RESET}  ${C_CYAN}%s${C_RESET}\n" "$idx" "$name"
+    printf "   ${C_WHITE}%d${C_RESET}  ${C_CYAN}%s${C_RESET}\n" "$idx" "$name"
     ((idx++))
   done
-  echo -e "  ${C_WHITE} c${C_RESET}  ${C_YELLOW}Custom prompt${C_RESET}"
-  echo -e "  ${C_WHITE} i${C_RESET}  ${C_GREEN}Interactive session (tmux)${C_RESET}"
-  echo -e "  ${C_WHITE} b${C_RESET}  ${C_DIM}Back${C_RESET}"
+  echo ""
+  echo -e "   ${C_WHITE}c${C_RESET}  Custom prompt"
+  echo -e "   ${C_WHITE}i${C_RESET}  Interactive session"
+  echo -e "   ${C_WHITE}b${C_RESET}  ${C_DIM}Back${C_RESET}"
 }
 
 # --- Banner ---
 show_banner() {
+  local ver
+  ver=$(get_version)
   echo ""
-  echo -e "${C_PINK}    ▸ RUNVO ${C_DIM}── Mobile command center for AI coding agents ${C_DIM}($(get_version))${C_RESET}"
-  echo -e "${C_DIM}    ────────────────────────────────────────${C_RESET}"
+  printf "    ${C_PINK}▸ RUNVO${C_RESET}%*s${C_DIM}%s${C_RESET}\n" $((33 - ${#ver})) "" "v$ver"
+  echo -e "    ${C_DIM}────────────────────────────────────────${C_RESET}"
 }
 
 # --- Version & Update ---
@@ -575,16 +599,12 @@ cmd_add_project() {
     echo "$name | $path | $desc" >> "$PROJECTS_FILE"
     echo -e "  ${C_GREEN}✓ Added: $name → $path${C_RESET}"
   else
+    # Interactive mode — use read directly (gum duplicates in tmux)
+    echo -e "  ${C_DIM}Register an existing project folder${C_RESET}"
+    echo ""
     local name path desc
-    name=$(input_text "Project name" "my-app")
-    [[ -z "$name" ]] && return
 
-    if grep -qF "$name |" "$PROJECTS_FILE" 2>/dev/null; then
-      echo -e "  ${C_RED}Project '$name' already exists.${C_RESET}"
-      return 1
-    fi
-
-    path=$(input_text "Project path" "~/Projects/$name")
+    read -rp "  Project path: " path
     [[ -z "$path" ]] && return
     path="${path/#\~/$HOME}"
 
@@ -593,10 +613,81 @@ cmd_add_project() {
       confirm_action "Add anyway?" || return
     fi
 
-    desc=$(input_text "Description (optional)" "")
+    # Default name from folder name
+    local default_name
+    default_name=$(basename "$path")
+    read -rp "  Name [$default_name]: " name
+    [[ -z "$name" ]] && name="$default_name"
+
+    if grep -qF "$name |" "$PROJECTS_FILE" 2>/dev/null; then
+      echo -e "  ${C_RED}Project '$name' already exists.${C_RESET}"
+      return 1
+    fi
+
+    read -rp "  Description (optional): " desc
 
     echo "$name | $path | $desc" >> "$PROJECTS_FILE"
     echo -e "  ${C_GREEN}✓ Added: $name → $path${C_RESET}"
+  fi
+}
+
+cmd_new_project() {
+  ensure_projects_header
+
+  # Get name from arg or prompt (read directly — gum duplicates in tmux)
+  local name="${1:-}"
+  if [[ -z "$name" ]]; then
+    read -rp "  Project name: " name
+    [[ -z "$name" ]] && return
+  fi
+
+  # Validate name
+  if [[ ! "$name" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+    echo -e "  ${C_RED}Invalid name. Use letters, numbers, hyphens, underscores only.${C_RESET}"
+    return 1
+  fi
+
+  # Check not already registered
+  if grep -qF "$name |" "$PROJECTS_FILE" 2>/dev/null; then
+    echo -e "  ${C_RED}Project '$name' already registered.${C_RESET}"
+    return 1
+  fi
+
+  # Get description
+  local desc
+  read -rp "  Description (optional): " desc
+
+  # Ask path
+  local default_path="$HOME/Projects/$name"
+  local path
+  read -rp "  Path [$default_path]: " path
+  [[ -z "$path" ]] && path="$default_path"
+  path="${path/#\~/$HOME}"
+
+  # Handle directory
+  if [[ -d "$path" ]]; then
+    echo -e "  ${C_YELLOW}Directory exists: $path${C_RESET}"
+    confirm_action "Use existing directory?" || return
+  else
+    mkdir -p "$path"
+    echo -e "  ${C_GREEN}✓ Created: $path${C_RESET}"
+  fi
+
+  # Init git if needed
+  if [[ ! -d "$path/.git" ]]; then
+    git init --quiet "$path"
+    echo -e "  ${C_GREEN}✓ Initialized git repo${C_RESET}"
+  fi
+
+  # Register in projects.conf
+  echo "$name | $path | $desc" >> "$PROJECTS_FILE"
+  echo -e "  ${C_GREEN}✓ Registered: $name${C_RESET}"
+  echo ""
+
+  # Offer AI session
+  if confirm_action "Open AI session now?"; then
+    load_projects 2>/dev/null
+    run_agent_interactive "$path" "$name"
   fi
 }
 
@@ -625,23 +716,24 @@ cmd_remove_project() {
 
 # --- Prompt Management ---
 cmd_list_prompts() {
-  echo -e "  ${C_WHITE}PROMPTS${C_RESET}"
-  echo -e "  ${C_DIM}────────────────────────────────────────────${C_RESET}"
-
-  echo -e "  ${C_WHITE}Shipped:${C_RESET}"
+  echo ""
+  echo -e "    ${C_ROSE}PROMPTS${C_RESET}"
+  echo -e "    ${C_DIM}────────────────────────────────────────${C_RESET}"
+  echo ""
+  echo -e "    ${C_WHITE}Shipped${C_RESET}"
   for f in "$PROMPTS_DIR_SHIPPED"/*.txt; do
     [[ -f "$f" ]] || continue
-    echo -e "    ${C_CYAN}$(basename "$f" .txt)${C_RESET}"
+    echo -e "      ${C_CYAN}$(basename "$f" .txt)${C_RESET}"
   done
-
-  echo -e "  ${C_WHITE}Custom:${C_RESET}"
+  echo ""
+  echo -e "    ${C_WHITE}Custom${C_RESET}"
   local has_custom=false
   for f in "$PROMPTS_DIR_USER"/*.txt; do
     [[ -f "$f" ]] || continue
-    echo -e "    ${C_GREEN}$(basename "$f" .txt)${C_RESET}"
+    echo -e "      ${C_GREEN}$(basename "$f" .txt)${C_RESET}"
     has_custom=true
   done
-  $has_custom || echo -e "    ${C_DIM}(none)${C_RESET}"
+  $has_custom || echo -e "      ${C_DIM}(none)${C_RESET}"
   echo ""
 }
 
@@ -721,37 +813,63 @@ cmd_remove_prompt() {
 # --- Main menu (phone-friendly: numbers only, no arrow keys) ---
 main_menu() {
   echo ""
+  echo -e "    ${C_ROSE}PROJECTS${C_RESET}"
   display_projects
   echo ""
-  echo -e "  ${C_WHITE} +${C_RESET}  ${C_DIM}Add project${C_RESET}"
+  echo -e "    ${C_DIM}- - - - - - - - - - - - - - - - - - - -${C_RESET}"
+  echo ""
+  echo -e "   ${C_WHITE}+${C_RESET}  Add existing"
+  echo -e "   ${C_WHITE}n${C_RESET}  Create new"
+  echo -e "   ${C_WHITE}-${C_RESET}  Remove project"
   # Show ssh-auto status
-  local auto_status="${C_DIM}○ off${C_RESET}"
+  local auto_status="${C_DIM}off${C_RESET}"
   local rc_file="$HOME/.zshrc"
   [[ "$SHELL" == *bash ]] && rc_file="$HOME/.bashrc"
-  grep -qF "$AUTOSTART_MARKER_START" "$rc_file" 2>/dev/null && auto_status="${C_GREEN}● on${C_RESET}"
-  echo -e "  ${C_WHITE} s${C_RESET}  ${C_DIM}SSH auto-launch${C_RESET} ${auto_status}"
+  grep -qF "$AUTOSTART_MARKER_START" "$rc_file" 2>/dev/null && auto_status="${C_GREEN}on${C_RESET}"
+  echo -e "   ${C_WHITE}s${C_RESET}  SSH auto-launch  ${auto_status}"
   echo ""
 
   local proj_choice
   read -rp "  # " proj_choice
 
-  [[ -z "$proj_choice" || "$proj_choice" == "q" ]] && return
+  # Quit: empty or q
+  [[ -z "$proj_choice" || "$proj_choice" == "q" ]] && return 1
 
-  # Add project shortcut
+  # Add existing project
   if [[ "$proj_choice" == "+" ]]; then
     cmd_add_project
-    return
+    return 0
+  fi
+
+  # Remove project
+  if [[ "$proj_choice" == "-" ]]; then
+    echo ""
+    echo -e "  ${C_DIM}Which project to remove?${C_RESET}"
+    display_projects
+    echo ""
+    local rm_choice
+    read -rp "  # " rm_choice
+    if [[ "$rm_choice" =~ ^[0-9]+$ ]] && (( rm_choice >= 1 && rm_choice <= ${#PROJECT_NAMES[@]} )); then
+      cmd_remove_project "${PROJECT_NAMES[$((rm_choice - 1))]}"
+    fi
+    return 0
+  fi
+
+  # Create new project
+  if [[ "$proj_choice" == "n" || "$proj_choice" == "N" ]]; then
+    cmd_new_project
+    return 0
   fi
 
   # SSH auto-launch toggle
   if [[ "$proj_choice" == "s" || "$proj_choice" == "S" ]]; then
     cmd_ssh_auto
-    return
+    return 0
   fi
 
   if [[ ! "$proj_choice" =~ ^[0-9]+$ ]] || (( proj_choice < 1 || proj_choice > ${#PROJECT_NAMES[@]} )); then
     echo -e "  ${C_RED}Invalid${C_RESET}"
-    return
+    return 0
   fi
 
   local proj_idx=$((proj_choice - 1))
@@ -857,38 +975,40 @@ run_quick() {
 # --- Show help ---
 show_help() {
   echo ""
-  echo -e "  ${C_WHITE}RUNVO${C_RESET} ${C_DIM}— Mobile command center for AI coding agents${C_RESET}"
+  echo -e "    ${C_ROSE}RUNVO${C_RESET} ${C_DIM}— Mobile command center for AI coding agents${C_RESET}"
+  echo -e "    ${C_DIM}────────────────────────────────────────${C_RESET}"
   echo ""
-  echo -e "  ${C_WHITE}USAGE${C_RESET}"
-  echo -e "  ${C_CYAN}runvo${C_RESET}                       Interactive menu"
-  echo -e "  ${C_CYAN}runvo${C_RESET} ${C_WHITE}<n>${C_RESET}                  Open project #n (tmux)"
-  echo -e "  ${C_CYAN}runvo${C_RESET} ${C_WHITE}<n> <a>${C_RESET}              Run action #a on project #n"
-  echo -e "  ${C_CYAN}runvo${C_RESET} ${C_WHITE}<n>${C_RESET} c ${C_DIM}\"prompt\"${C_RESET}      Custom prompt on project #n"
-  echo -e "  ${C_CYAN}runvo${C_RESET} ${C_WHITE}<n>${C_RESET} i                Interactive session #n"
+  echo -e "    ${C_ROSE}USAGE${C_RESET}"
+  echo -e "    ${C_CYAN}runvo${C_RESET}                       Interactive menu"
+  echo -e "    ${C_CYAN}runvo${C_RESET} ${C_WHITE}<n>${C_RESET}                  Open project #n"
+  echo -e "    ${C_CYAN}runvo${C_RESET} ${C_WHITE}<n> <a>${C_RESET}              Run action #a on project #n"
+  echo -e "    ${C_CYAN}runvo${C_RESET} ${C_WHITE}<n>${C_RESET} c ${C_DIM}\"prompt\"${C_RESET}      Custom prompt"
+  echo -e "    ${C_CYAN}runvo${C_RESET} ${C_WHITE}<n>${C_RESET} i                Interactive session"
   echo ""
-  echo -e "  ${C_WHITE}COMMANDS${C_RESET}"
-  echo -e "  ${C_CYAN}runvo setup${C_RESET}                 First-run setup wizard"
-  echo -e "  ${C_CYAN}runvo add${C_RESET} [name path desc]  Add project"
-  echo -e "  ${C_CYAN}runvo remove${C_RESET} ${C_WHITE}<name>${C_RESET}         Remove project"
-  echo -e "  ${C_CYAN}runvo list${C_RESET}                  List projects"
-  echo -e "  ${C_CYAN}runvo config${C_RESET}                Edit projects.conf"
-  echo -e "  ${C_CYAN}runvo prompts${C_RESET}               List all prompts"
-  echo -e "  ${C_CYAN}runvo prompt add${C_RESET} ${C_WHITE}<name>${C_RESET}     Add custom prompt"
-  echo -e "  ${C_CYAN}runvo prompt edit${C_RESET} ${C_WHITE}<name>${C_RESET}    Edit prompt"
-  echo -e "  ${C_CYAN}runvo prompt rm${C_RESET} ${C_WHITE}<name>${C_RESET}      Remove custom prompt"
-  echo -e "  ${C_CYAN}runvo sessions${C_RESET}              Active tmux sessions"
-  echo -e "  ${C_CYAN}runvo history${C_RESET}               Recent history"
-  echo -e "  ${C_CYAN}runvo ssh-auto${C_RESET}              Auto-launch on SSH login"
-  echo -e "  ${C_CYAN}runvo update${C_RESET}                Check & install updates"
-  echo -e "  ${C_CYAN}runvo version${C_RESET}               Show version"
+  echo -e "    ${C_ROSE}COMMANDS${C_RESET}"
+  echo -e "    ${C_CYAN}runvo setup${C_RESET}                 Setup wizard"
+  echo -e "    ${C_CYAN}runvo new${C_RESET} ${C_DIM}[name]${C_RESET}            Create new project"
+  echo -e "    ${C_CYAN}runvo add${C_RESET} ${C_DIM}[name path desc]${C_RESET}  Register existing project"
+  echo -e "    ${C_CYAN}runvo remove${C_RESET} ${C_WHITE}<name>${C_RESET}         Remove project"
+  echo -e "    ${C_CYAN}runvo list${C_RESET}                  List projects"
+  echo -e "    ${C_CYAN}runvo config${C_RESET}                Edit projects.conf"
+  echo -e "    ${C_CYAN}runvo prompts${C_RESET}               List prompts"
+  echo -e "    ${C_CYAN}runvo prompt add${C_RESET} ${C_WHITE}<name>${C_RESET}     Add custom prompt"
+  echo -e "    ${C_CYAN}runvo prompt edit${C_RESET} ${C_WHITE}<name>${C_RESET}    Edit prompt"
+  echo -e "    ${C_CYAN}runvo prompt rm${C_RESET} ${C_WHITE}<name>${C_RESET}      Remove custom prompt"
+  echo -e "    ${C_CYAN}runvo sessions${C_RESET}              Active tmux sessions"
+  echo -e "    ${C_CYAN}runvo history${C_RESET}               Recent history"
+  echo -e "    ${C_CYAN}runvo ssh-auto${C_RESET}              Toggle SSH auto-launch"
+  echo -e "    ${C_CYAN}runvo update${C_RESET}                Check & install updates"
+  echo -e "    ${C_CYAN}runvo version${C_RESET}               Show version"
   echo ""
-  echo -e "  ${C_WHITE}PROJECTS${C_RESET}"
+  echo -e "    ${C_ROSE}PROJECTS${C_RESET}"
   display_projects
   echo ""
-  echo -e "  ${C_WHITE}ACTIONS${C_RESET}"
+  echo -e "    ${C_ROSE}ACTIONS${C_RESET}"
   local idx=1
   for name in "${PROMPT_NAMES[@]}"; do
-    printf "  ${C_WHITE}%2d${C_RESET}  %s\n" "$idx" "$name"
+    printf "    ${C_WHITE}%d${C_RESET}  %s\n" "$idx" "$name"
     ((idx++))
   done
   echo ""
@@ -962,6 +1082,11 @@ if [[ $# -ge 1 ]]; then
     setup)
       run_setup_wizard
       exit 0
+      ;;
+    new)
+      shift
+      cmd_new_project "$@"
+      exit $?
       ;;
     add)
       shift
@@ -1044,4 +1169,7 @@ if [[ ${#PROJECT_NAMES[@]} -eq 0 ]]; then
 fi
 
 check_update_silent "$@"
-main_menu
+while true; do
+  main_menu || break
+  load_projects 2>/dev/null
+done
